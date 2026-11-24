@@ -1,0 +1,64 @@
+name: Rust Checks
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-15
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Check Formatting
+        run: cargo fmt -- --check
+
+  deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          manifest-path: Cargo.toml
+          rust-version: stable
+
+  clippy-test:
+    name: Clippy + Tests
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-15
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Run Tests
+        run: cargo test --workspace
+      # `appctl init` can prune down to a single surface, so verify each
+      # feature combination compiles cleanly on its own (not just the default).
+      - name: Clippy (cli-only)
+        run: cargo clippy -p appctl --no-default-features --features cli --all-targets -- -D warnings
+      - name: Test (cli-only)
+        run: cargo test -p appctl --no-default-features --features cli
+      - name: Clippy (http-api-only)
+        run: cargo clippy -p appctl --no-default-features --features http-api --all-targets -- -D warnings
+      - name: Test (http-api-only)
+        run: cargo test -p appctl --no-default-features --features http-api
