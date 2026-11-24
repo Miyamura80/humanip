@@ -291,3 +291,74 @@ details.dig > .dig-body {
 	padding: 4px 0;
 	border-bottom: 3px solid transparent;
 }
+
+/* Pareto frontier */
+.frontier,
+.parallel {
+	width: 100%;
+	display: block;
+}
+.multiples {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 12px;
+}
+.walk {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	overflow-x: auto;
+	padding: 18px 4px 4px;
+}
+.walk-step {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.walk-arrow {
+	color: var(--accent);
+	font-size: 18px;
+}
+.walk-end {
+	font-size: 11px;
+	color: var(--text-3);
+	white-space: nowrap;
+}
+.walk-node {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 3px;
+	padding: 12px 14px;
+	min-width: 112px;
+	border: 1px solid var(--border-strong);
+	border-radius: 12px;
+	background: var(--bg);
+	cursor: pointer;
+}
+.walk-node.on {
+	border-color: var(--accent);
+	background: var(--accent-dim);
+}
+.walk-star {
+	position: absolute;
+	top: -10px;
+	font-size: 10px;
+	background: var(--accent);
+	color: var(--accent-ink);
+	border-radius: 999px;
+	padding: 1px 7px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+.preset {
+	display: inline-flex;
+	gap: 6px;
+}
+.hero {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 300px;
+	gap: 16px;
+	margin-bottom: 16px;
+}

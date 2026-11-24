@@ -96,6 +96,17 @@ export const OFFERS: ProviderOffer[] = [
 
 /** Historical success rate per (domain, provider) from passive scoring. */
 const SUCCESS: Record<string, Record<string, number>> = {
+	"web.whatsapp.com": {
+		"Bright Data": 0.84,
+		Oxylabs: 0.82,
+		Decodo: 0.77,
+		IPRoyal: 0.71,
+		PoolX: 0.22,
+		NetNut: 0.96,
+		Rayobyte: 0.93,
+		"Proxy-Cheap": 0.97,
+		"iProxy farm": 0.99,
+	},
 	"linkedin.com": {
 		"Bright Data": 0.91,
 		Oxylabs: 0.89,
@@ -267,4 +278,17 @@ export const ACCOUNT = {
 	balance: 412.38,
 	spend30d: ROUTES.reduce((s, r) => s + r.spend30d, 0),
 	apiKey: "hip_live_7Qx2…Fv9c",
+};
+
+/** p50 connect latency through each provider, ms (passive measurement). */
+export const LATENCY_MS: Record<string, number> = {
+	"Bright Data": 380,
+	Oxylabs: 410,
+	Decodo: 520,
+	IPRoyal: 640,
+	PoolX: 1100,
+	NetNut: 210,
+	Rayobyte: 260,
+	"Proxy-Cheap": 720,
+	"iProxy farm": 690,
 };

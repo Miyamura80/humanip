@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
-import { EXIT_ICON, Ring } from "../components/visual";
 import {
-	effectivePrice,
-	eligibleOffers,
-	OFFERS,
-	type ProviderOffer,
-	successRate,
-} from "../lib/mock";
-import { resolveRisk, riskLabel, usd, withTake } from "../lib/policy";
+	FrontierPlot,
+	FrontierWalk,
+	ParallelAxes,
+	ReliabilityBadge,
+} from "../components/frontier";
+import { EXIT_ICON, Ring } from "../components/visual";
+import { eligibleOffers, OFFERS, successRate } from "../lib/mock";
+import { axis, defaultPick, RELIABILITY_FLOOR } from "../lib/pareto";
+import { resolveRisk, riskLabel } from "../lib/policy";
 
 const domainOf = (url: string) => {
 	try {
@@ -19,37 +20,38 @@ const domainOf = (url: string) => {
 	}
 };
 
-const MEDAL = ["🥇", "🥈", "🥉"];
+// Default risk is low: reliability-first unless changed under Advanced.
+const DEFAULT_RISK = 20;
+
+const MULTIPLES = [
+	{ x: "cost", y: "fraud" },
+	{ x: "cost", y: "latency" },
+	{ x: "cost", y: "sticky" },
+	{ x: "fraud", y: "success" },
+] as const;
 
 export function PriceLookup() {
 	const [url, setUrl] = useState("https://www.linkedin.com/in/");
-	const [risk, setRisk] = useState(35);
+	const [risk, setRisk] = useState(DEFAULT_RISK);
+	const [floor, setFloor] = useState(RELIABILITY_FLOOR);
+	const [manual, setManual] = useState<(typeof OFFERS)[number]>();
 	const domain = domainOf(url);
 
-	const resolved = useMemo(
-		() => resolveRisk(risk, ["mobile", "isp", "residential"]),
+	const eligible = useMemo(
+		() =>
+			new Set(
+				eligibleOffers(resolveRisk(risk, ["mobile", "isp", "residential"]), 0),
+			),
 		[risk],
 	);
-	const eligible = useMemo(
-		() => new Set(eligibleOffers(resolved, 0)),
-		[resolved],
+	const pool = useMemo(() => OFFERS.filter((o) => eligible.has(o)), [eligible]);
+	const auto = useMemo(
+		() => defaultPick(pool, domain, floor),
+		[pool, domain, floor],
 	);
-	const ranked = useMemo(
-		() =>
-			[...OFFERS].sort((a, b) => {
-				const ea = eligible.has(a) ? 0 : 1;
-				const eb = eligible.has(b) ? 0 : 1;
-				return ea - eb || effectivePrice(a, domain) - effectivePrice(b, domain);
-			}),
-		[eligible, domain],
-	);
-	const top = ranked.filter((o) => eligible.has(o)).slice(0, 3);
-	const best = top[0];
-	// Podium order: 2nd, 1st, 3rd.
-	const podium = [top[1], top[0], top[2]].map((o, i) => ({
-		o,
-		place: [1, 0, 2][i],
-	}));
+	const pick = manual && eligible.has(manual) ? manual : auto;
+	const edited = risk !== DEFAULT_RISK || floor !== RELIABILITY_FLOOR;
+	const cost = axis("cost");
 
 	return (
 		<>
@@ -57,260 +59,169 @@ export function PriceLookup() {
 				<h1>💲 Price lookup</h1>
 			</div>
 
-			<div className="card card-pad row" style={{ gap: 16, marginBottom: 16 }}>
-				<span style={{ fontSize: 20 }}>🎯</span>
-				<input
-					className="input mono"
-					style={{ flex: 1 }}
-					value={url}
-					aria-label="Target URL"
-					onChange={(e) => setUrl(e.target.value)}
-				/>
-				<span title="risk">🛡️</span>
-				<input
-					type="range"
-					className="risk-slider"
-					aria-label="Risk"
-					style={{ width: 200, margin: 0 }}
-					min={0}
-					max={100}
-					value={risk}
-					onChange={(e) => setRisk(Number(e.target.value))}
-				/>
-				<span>💸</span>
-				<span
-					className="badge"
-					style={{ minWidth: 96, justifyContent: "center" }}
-				>
-					{risk} · {riskLabel(risk)}
-				</span>
+			<div className="card card-pad" style={{ marginBottom: 16 }}>
+				<div className="row" style={{ gap: 12 }}>
+					<span style={{ fontSize: 20 }}>🎯</span>
+					<input
+						className="input mono"
+						style={{ flex: 1 }}
+						value={url}
+						aria-label="Target URL"
+						onChange={(e) => setUrl(e.target.value)}
+					/>
+					<ReliabilityBadge
+						edited={edited}
+						risk={risk}
+						floor={floor}
+						achieved={pick ? successRate(domain, pick.provider) : undefined}
+					/>
+				</div>
+				<details className="dig" style={{ marginTop: 12 }}>
+					<summary>⚙️ Advanced: reliability floor · risk dial</summary>
+					<div className="dig-body grid-2">
+						<div className="field">
+							<span className="field-label">
+								🎯 reliability floor · {Math.round(floor * 100)}%
+							</span>
+							<input
+								type="range"
+								min={70}
+								max={99}
+								value={Math.round(floor * 100)}
+								aria-label="Reliability floor"
+								onChange={(e) => setFloor(Number(e.target.value) / 100)}
+							/>
+						</div>
+						<div className="field">
+							<span className="field-label">
+								🛡️ risk · {risk} {riskLabel(risk)}
+							</span>
+							<input
+								type="range"
+								className="risk-slider"
+								style={{ margin: "6px 0" }}
+								min={0}
+								max={100}
+								value={risk}
+								aria-label="Risk"
+								onChange={(e) => setRisk(Number(e.target.value))}
+							/>
+						</div>
+					</div>
+				</details>
 			</div>
 
-			<div
-				className="split"
-				style={{ gridTemplateColumns: "5fr 6fr", marginBottom: 16 }}
-			>
-				<div className="podium">
-					{podium.map(({ o, place }) =>
-						o ? (
-							<div
-								key={o.provider}
-								className={`step${place === 0 ? " first" : ""}`}
-							>
-								<div className="medal">{MEDAL[place]}</div>
-								<div className="big-icon" style={{ margin: "6px 0" }}>
-									{EXIT_ICON[o.exitType]}
-								</div>
-								<b>{o.provider}</b>
-								<div
-									className={place === 0 ? "big-cost" : "money"}
-									style={{ marginTop: 6 }}
-								>
-									{usd(withTake(effectivePrice(o, domain)))}
-								</div>
-								<div
-									className="faint"
-									style={{ fontSize: 11, marginBottom: 10 }}
-								>
-									per working GB
-								</div>
-								<div
-									className="row"
-									style={{ justifyContent: "center", gap: 10 }}
-								>
-									<Ring
-										value={Math.round(successRate(domain, o.provider) * 100)}
-										label="works"
-										size={44}
-									/>
-									<Ring value={o.fraudScore} label="fraud" invert size={44} />
-								</div>
-							</div>
-						) : (
-							<div key={place} />
-						),
-					)}
-				</div>
+			<div className="hero">
 				<div className="card card-pad">
-					<div className="legend" style={{ marginBottom: 6 }}>
-						<span>↑ works more</span>
-						<span>→ costs more</span>
+					<div className="legend" style={{ marginBottom: 4 }}>
+						<span>✅ works ↑</span>
+						<span>💸 $/working GB ←</span>
 						<span style={{ marginLeft: "auto" }}>
-							📱 🏢 🏠 · faded = over budget
+							━ frontier · ░ beaten · faded = over risk
 						</span>
 					</div>
-					<Scatter
-						offers={ranked}
-						eligible={eligible}
+					<FrontierPlot
+						x={cost}
+						y={axis("success")}
+						offers={OFFERS}
 						domain={domain}
-						best={best}
+						eligible={eligible}
+						pick={pick}
+						auto={auto}
+						floor={floor}
+						onPick={setManual}
 					/>
 				</div>
+				{pick && (
+					<div className="card card-pad" style={{ textAlign: "center" }}>
+						<span className={`badge ${pick === auto ? "badge-good" : ""}`}>
+							{pick === auto ? "⭐ default pick" : "👆 your pick"}
+						</span>
+						<div
+							className="big-icon"
+							style={{ fontSize: 40, margin: "14px 0 6px" }}
+						>
+							{EXIT_ICON[pick.exitType]}
+						</div>
+						<div style={{ fontSize: 16, fontWeight: 600 }}>{pick.provider}</div>
+						<div className="big-cost" style={{ margin: "6px 0 2px" }}>
+							{cost.fmt(cost.get(pick, domain))}
+						</div>
+						<div className="faint" style={{ fontSize: 11, marginBottom: 14 }}>
+							per working GB · incl. 5%
+						</div>
+						<div className="row" style={{ justifyContent: "center", gap: 14 }}>
+							<Ring
+								value={Math.round(successRate(domain, pick.provider) * 100)}
+								label="works"
+							/>
+							<Ring value={pick.fraudScore} label="fraud" invert />
+						</div>
+						{pick !== auto && (
+							<button
+								type="button"
+								className="btn"
+								style={{ marginTop: 14 }}
+								onClick={() => setManual(undefined)}
+							>
+								↺ back to ⭐
+							</button>
+						)}
+						<button
+							type="button"
+							className="btn btn-primary"
+							style={{ width: "100%", justifyContent: "center", marginTop: 14 }}
+						>
+							Create route
+						</button>
+					</div>
+				)}
 			</div>
 
-			<details className="dig card card-pad">
-				<summary>
-					📋 all {OFFERS.length} providers · {OFFERS.length - eligible.size}{" "}
-					over your risk budget
-				</summary>
-				<table className="tbl dig-body">
-					<thead>
-						<tr>
-							<th />
-							<th>Provider</th>
-							<th className="num">List</th>
-							<th className="num">Works</th>
-							<th className="num">Per working GB</th>
-							<th>🛡️</th>
-							<th>Fits?</th>
-						</tr>
-					</thead>
-					<tbody>
-						{ranked.map((o) => {
-							const ok = eligible.has(o);
-							return (
-								<tr
-									key={o.provider}
-									className={o === best ? "hl" : ok ? "" : "dim"}
-								>
-									<td>{EXIT_ICON[o.exitType]}</td>
-									<td style={{ fontWeight: 600 }}>{o.provider}</td>
-									<td className="num mono">{usd(withTake(o.pricePerGb))}</td>
-									<td className="num mono">
-										{Math.round(successRate(domain, o.provider) * 100)}%
-									</td>
-									<td className="num mono">
-										{usd(withTake(effectivePrice(o, domain)))}
-									</td>
-									<td className="mono">{o.fraudScore}</td>
-									<td>
-										{ok ? (
-											"✅"
-										) : (
-											<span className="faint">✖ {whyNot(o, resolved)}</span>
-										)}
-									</td>
-								</tr>
-							);
-						})}
-					</tbody>
-				</table>
-				<p className="faint">
-					Per working GB = list price ÷ success rate. Includes the 5% fee.
-				</p>
-			</details>
+			<div className="card card-pad" style={{ marginBottom: 16 }}>
+				<b>🚶 Walk the frontier</b>
+				<FrontierWalk
+					offers={pool}
+					domain={domain}
+					pick={pick}
+					auto={auto}
+					onPick={setManual}
+				/>
+			</div>
+
+			<div className="card card-pad" style={{ marginBottom: 16 }}>
+				<div className="legend">
+					<b style={{ color: "var(--text)" }}>🧭 All 5 axes</b>
+					<span>↑ better on every axis</span>
+					<span>━ unbeaten · ┄ beaten on all 5</span>
+					<span style={{ marginLeft: "auto" }}>⬜ = selected</span>
+				</div>
+				<ParallelAxes
+					offers={OFFERS}
+					domain={domain}
+					eligible={eligible}
+					pick={pick}
+					onPick={setManual}
+				/>
+			</div>
+
+			<div className="multiples">
+				{MULTIPLES.map((m) => (
+					<div key={`${m.x}-${m.y}`} className="card card-pad">
+						<FrontierPlot
+							small
+							x={axis(m.x)}
+							y={axis(m.y)}
+							offers={OFFERS}
+							domain={domain}
+							eligible={eligible}
+							pick={pick}
+							auto={auto}
+							onPick={setManual}
+						/>
+					</div>
+				))}
+			</div>
 		</>
 	);
-}
-
-function whyNot(o: ProviderOffer, r: ReturnType<typeof resolveRisk>): string {
-	if (o.fraudScore > r.maxFraudScore) return `fraud > ${r.maxFraudScore}`;
-	if (!r.sourcingTiers.includes(o.sourcing)) return `${o.sourcing} sourcing`;
-	return "exit type";
-}
-
-function Scatter({
-	offers,
-	eligible,
-	domain,
-	best,
-}: {
-	offers: ProviderOffer[];
-	eligible: Set<ProviderOffer>;
-	domain: string;
-	best?: ProviderOffer;
-}) {
-	const W = 560;
-	const H = 220;
-	const pad = { l: 40, r: 16, t: 10, b: 28 };
-	const maxP = 10;
-	const x = (p: number) => pad.l + (p / maxP) * (W - pad.l - pad.r);
-	const y = (s: number) => pad.t + (1 - (s - 0.2) / 0.8) * (H - pad.t - pad.b);
-	return (
-		<svg
-			viewBox={`0 0 ${W} ${H}`}
-			className="scatter"
-			role="img"
-			aria-label="Cost versus success scatter"
-		>
-			{[0.2, 0.4, 0.6, 0.8, 1].map((s) => (
-				<g key={s}>
-					<line
-						x1={pad.l}
-						x2={W - pad.r}
-						y1={y(s)}
-						y2={y(s)}
-						stroke="var(--border)"
-					/>
-					<text
-						x={pad.l - 6}
-						y={y(s) + 4}
-						textAnchor="end"
-						fontSize="10"
-						fill="var(--text-3)"
-					>
-						{Math.round(s * 100)}%
-					</text>
-				</g>
-			))}
-			{[0, 2, 4, 6, 8, 10].map((p) => (
-				<text
-					key={p}
-					x={x(p)}
-					y={H - 8}
-					textAnchor="middle"
-					fontSize="10"
-					fill="var(--text-3)"
-				>
-					${p}
-				</text>
-			))}
-			{placeLabels(
-				offers.map((o) => ({
-					o,
-					cx: x(withTake(o.pricePerGb)),
-					cy: y(successRate(domain, o.provider)),
-				})),
-			).map(({ o, cx, cy, ly }) => (
-				<g key={o.provider} opacity={eligible.has(o) ? 1 : 0.3}>
-					{o === best && (
-						<circle
-							cx={cx}
-							cy={cy}
-							r={13}
-							fill="var(--accent-dim)"
-							stroke="var(--accent)"
-							strokeWidth="2"
-						/>
-					)}
-					<text x={cx} y={cy + 5} fontSize="14" textAnchor="middle">
-						{EXIT_ICON[o.exitType]}
-					</text>
-					<text
-						x={cx > W - 110 ? cx - 15 : cx + 15}
-						y={ly + 4}
-						textAnchor={cx > W - 110 ? "end" : "start"}
-						fontSize="10.5"
-						fill="var(--text-2)"
-					>
-						{o.provider}
-					</text>
-				</g>
-			))}
-		</svg>
-	);
-}
-
-/** Greedy vertical nudge so neighbouring point labels never overlap. */
-function placeLabels<T extends { cx: number; cy: number }>(pts: T[]) {
-	const placed: (T & { ly: number })[] = [];
-	for (const p of [...pts].sort((a, b) => a.cy - b.cy)) {
-		let ly = p.cy;
-		for (const q of placed) {
-			if (Math.abs(q.cx - p.cx) < 80 && Math.abs(q.ly - ly) < 13)
-				ly = q.ly + 13;
-		}
-		placed.push({ ...p, ly });
-	}
-	return placed;
 }

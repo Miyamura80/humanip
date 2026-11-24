@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { FrontierPlot, ReliabilityBadge } from "../components/frontier";
 import { Dots, Field, Label, Step, Tile } from "../components/tiles";
 import {
 	EXIT_ICON,
@@ -8,7 +9,13 @@ import {
 	Pips,
 	USE_ICON,
 } from "../components/visual";
-import { effectivePrice, eligibleOffers } from "../lib/mock";
+import {
+	eligibleOffers,
+	OFFERS,
+	type ProviderOffer,
+	successRate,
+} from "../lib/mock";
+import { axis, defaultPick, RELIABILITY_FLOOR } from "../lib/pareto";
 import {
 	EXIT_LABEL,
 	type ExitType,
@@ -31,21 +38,21 @@ const PRESET: Record<
 		mode: "sticky",
 		ttl: "session",
 		exits: ["residential"],
-		risk: 40,
+		risk: 20,
 		gb: 20,
 	},
 	mautrix: {
 		mode: "sticky",
 		ttl: "forever",
 		exits: ["mobile", "isp"],
-		risk: 8,
+		risk: 20,
 		gb: 1,
 	},
 	scrape: {
 		mode: "rotating",
 		ttl: "session",
 		exits: ["residential"],
-		risk: 65,
+		risk: 20,
 		gb: 200,
 	},
 };
@@ -68,6 +75,13 @@ const LOSS: { v: PinLoss; icon: string; cap: string }[] = [
 	{ v: "same_country", icon: "🏳️", cap: "same country" },
 	{ v: "any", icon: "🎲", cap: "anything" },
 ];
+const TARGET: Record<UseCase, string> = {
+	browser: "linkedin.com",
+	mautrix: "web.whatsapp.com",
+	scrape: "amazon.com",
+};
+const DEFAULT_RISK = 20;
+
 const EXIT_COST: Record<ExitType, number> = {
 	mobile: 3,
 	isp: 2,
@@ -83,6 +97,8 @@ export function RouteBuilder() {
 	const [exits, setExits] = useState<ExitType[]>(p.exits);
 	const [risk, setRisk] = useState(p.risk);
 	const [gb, setGb] = useState(p.gb);
+	const [floor, setFloor] = useState(RELIABILITY_FLOOR);
+	const [manual, setManual] = useState<ProviderOffer>();
 
 	const pick = (u: UseCase) => {
 		const n = PRESET[u];
@@ -92,25 +108,33 @@ export function RouteBuilder() {
 		setExits(n.exits);
 		setRisk(n.risk);
 		setGb(n.gb);
+		setManual(undefined);
 	};
 	const toggle = (e: ExitType) =>
 		setExits((c) =>
 			c.includes(e) ? (c.length > 1 ? c.filter((x) => x !== e) : c) : [...c, e],
 		);
 
-	const resolved = useMemo(() => resolveRisk(risk, exits), [risk, exits]);
 	const stickyMin =
 		mode === "sticky" ? (TTL.find((t) => t.v === ttl)?.min ?? 0) : 0;
+	// The pin length the route needs is the sticky requirement; the risk
+	// dial only tunes fraud, exit downgrade and sourcing.
+	const resolved = useMemo(
+		() => resolveRisk(risk, exits, { minStickyMinutes: stickyMin }),
+		[risk, exits, stickyMin],
+	);
+	const domain = TARGET[use];
 	const offers = useMemo(
-		() =>
-			eligibleOffers(resolved, stickyMin).sort(
-				(a, b) =>
-					effectivePrice(a, "web.whatsapp.com") -
-					effectivePrice(b, "web.whatsapp.com"),
-			),
+		() => eligibleOffers(resolved, stickyMin),
 		[resolved, stickyMin],
 	);
-	const best = offers[0];
+	const eligible = useMemo(() => new Set(offers), [offers]);
+	const auto = useMemo(
+		() => defaultPick(offers, domain, floor),
+		[offers, domain, floor],
+	);
+	const best = manual && eligible.has(manual) ? manual : auto;
+	const edited = risk !== DEFAULT_RISK || floor !== RELIABILITY_FLOOR;
 
 	// 0-4 pips per risk dimension: more pips = more risk taken.
 	const dims = [
@@ -275,48 +299,88 @@ export function RouteBuilder() {
 						</div>
 					</Step>
 
-					<Step n={4} title="Risk for price">
-						<div className="row" style={{ gap: 24, alignItems: "center" }}>
-							<div style={{ width: 240, textAlign: "center" }}>
-								<Gauge value={risk} />
-								<div className="big-cost" style={{ marginTop: -6 }}>
-									{risk}
+					<Step n={4} title="How reliable?">
+						<div className="row" style={{ gap: 8, marginBottom: 6 }}>
+							<ReliabilityBadge
+								edited={edited}
+								risk={risk}
+								floor={floor}
+								achieved={best ? successRate(domain, best.provider) : undefined}
+							/>
+							<span className="faint" style={{ marginLeft: "auto" }}>
+								🎯 {domain} · tap a point to override
+							</span>
+						</div>
+						<FrontierPlot
+							x={axis("cost")}
+							y={axis("success")}
+							offers={OFFERS}
+							domain={domain}
+							eligible={eligible}
+							pick={best}
+							auto={auto}
+							floor={floor}
+							onPick={setManual}
+						/>
+						<details className="dig" style={{ marginTop: 10 }}>
+							<summary>⚙️ Advanced: reliability floor · 🛡️ risk dial</summary>
+							<div className="dig-body">
+								<div className="field">
+									<span className="field-label">
+										🎯 reliability floor · {Math.round(floor * 100)}%
+									</span>
+									<input
+										type="range"
+										min={70}
+										max={99}
+										value={Math.round(floor * 100)}
+										aria-label="Reliability floor"
+										onChange={(e) => setFloor(Number(e.target.value) / 100)}
+									/>
 								</div>
-								<div className="faint">{riskLabel(risk)}</div>
-								<input
-									type="range"
-									min={0}
-									max={100}
-									value={risk}
-									className="risk-slider"
-									aria-label="Risk"
-									onChange={(e) => setRisk(Number(e.target.value))}
-								/>
-							</div>
-							<div style={{ flex: 1 }}>
-								{dims.map((d) => (
-									<div
-										key={d.k}
-										className="kv"
-										style={{ alignItems: "center" }}
-									>
-										<span>
-											{d.icon} <span className="muted">{d.k}</span> <b>{d.v}</b>
-										</span>
-										<Pips
-											n={Math.max(0, Math.min(4, d.n))}
-											color={
-												d.n >= 3
-													? "var(--bad)"
-													: d.n === 2
-														? "var(--warn)"
-														: "var(--accent)"
-											}
+								<div className="row" style={{ gap: 24, alignItems: "center" }}>
+									<div style={{ width: 220, textAlign: "center" }}>
+										<Gauge value={risk} />
+										<div className="faint">
+											{risk} · {riskLabel(risk)}
+										</div>
+										<input
+											type="range"
+											min={0}
+											max={100}
+											value={risk}
+											className="risk-slider"
+											aria-label="Risk"
+											onChange={(e) => setRisk(Number(e.target.value))}
 										/>
 									</div>
-								))}
+									<div style={{ flex: 1 }}>
+										{dims.map((d) => (
+											<div
+												key={d.k}
+												className="kv"
+												style={{ alignItems: "center" }}
+											>
+												<span>
+													{d.icon} <span className="muted">{d.k}</span>{" "}
+													<b>{d.v}</b>
+												</span>
+												<Pips
+													n={Math.max(0, Math.min(4, d.n))}
+													color={
+														d.n >= 3
+															? "var(--bad)"
+															: d.n === 2
+																? "var(--warn)"
+																: "var(--accent)"
+													}
+												/>
+											</div>
+										))}
+									</div>
+								</div>
 							</div>
-						</div>
+						</details>
 					</Step>
 
 					<details className="dig card card-pad">
@@ -408,7 +472,8 @@ mode: ${mode}
 ${mode === "sticky" ? `sticky: { ttl: ${ttl}, on_pin_loss: ${loss} }\n` : ""}exit_types: [${exits.join(", ")}]
 geo: { country: DE, city: Berlin, asn: 3320,
        match_account: true }
-risk: ${risk}`}</pre>
+risk: ${risk}
+reliability_floor: ${floor}`}</pre>
 					</details>
 				</div>
 			</div>
