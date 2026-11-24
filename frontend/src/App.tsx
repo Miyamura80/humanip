@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./styles/app.css";
+import "./styles/visual.css";
 import { ACCOUNT } from "./lib/mock";
 import { usd } from "./lib/policy";
 import { Dashboard } from "./views/Dashboard";
@@ -8,10 +9,10 @@ import { Quickstart } from "./views/Quickstart";
 import { RouteBuilder } from "./views/RouteBuilder";
 
 const VIEWS = {
-	routes: { label: "Routes", icon: "▦", el: <Dashboard /> },
-	new: { label: "New route", icon: "+", el: <RouteBuilder /> },
-	lookup: { label: "Price lookup", icon: "$", el: <PriceLookup /> },
-	connect: { label: "Connect", icon: "⌁", el: <Quickstart /> },
+	routes: { label: "Routes", icon: "🗺️", el: <Dashboard /> },
+	new: { label: "New route", icon: "➕", el: <RouteBuilder /> },
+	lookup: { label: "Price lookup", icon: "💲", el: <PriceLookup /> },
+	connect: { label: "Connect", icon: "🔌", el: <Quickstart /> },
 } as const;
 
 type ViewKey = keyof typeof VIEWS;
@@ -52,23 +53,23 @@ function App() {
 				<div className="nav-section">Account</div>
 				<span className="nav-item">
 					<span className="mono faint" style={{ width: 14 }}>
-						⚿
+						🔑
 					</span>
 					API keys
 				</span>
 				<span className="nav-item">
 					<span className="mono faint" style={{ width: 14 }}>
-						◷
+						🧾
 					</span>
 					Usage & billing
 				</span>
 				<div className="sidebar-foot">
 					<div className="faint" style={{ fontSize: 11 }}>
-						Prepaid balance
+						💰 balance
 					</div>
 					<div className="balance">{usd(ACCOUNT.balance)}</div>
 					<button type="button" className="btn" style={{ width: "100%" }}>
-						Top up · card or USDC
+						💳 / 🪙 Top up
 					</button>
 				</div>
 			</aside>

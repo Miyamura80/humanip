@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { CopyField, PageHead, Segmented } from "../components/ui";
+import { CopyField, Segmented } from "../components/ui";
+import { EXIT_ICON, Flow } from "../components/visual";
 
 type Proto = "socks5" | "http";
 type Snippet = "playwright" | "browser-use" | "mautrix" | "curl";
@@ -7,83 +8,105 @@ type Snippet = "playwright" | "browser-use" | "mautrix" | "curl";
 const GW = "gw.humanip.io";
 const KEY = "hip_live_7Qx2Fv9c";
 
+/** Each username segment, colour-coded with what it controls. */
+const PARTS: { text: string; color: string; label?: string }[] = [
+	{ text: "user-", color: "var(--text-3)" },
+	{ text: "route_agent", color: "var(--accent)", label: "🗺️ policy" },
+	{ text: "-", color: "var(--text-3)" },
+	{ text: "session_r42", color: "var(--mobile)", label: "📌 same IP" },
+	{ text: "-", color: "var(--text-3)" },
+	{ text: "risk_40", color: "var(--warn)", label: "🛡️ risk" },
+	{ text: "-", color: "var(--text-3)" },
+	{ text: "country_us", color: "var(--isp)", label: "🌍 geo" },
+	{ text: ":", color: "var(--text-3)" },
+	{ text: "KEY", color: "var(--bad)", label: "🔑 key" },
+	{ text: "@", color: "var(--text-3)" },
+	{ text: GW, color: "var(--text-2)", label: "🚪 gateway" },
+];
+
 export function Quickstart() {
 	const [proto, setProto] = useState<Proto>("socks5");
 	const [snippet, setSnippet] = useState<Snippet>("playwright");
 	const port = proto === "socks5" ? 1080 : 8080;
 
-	const adhoc = `${proto}://user-route_agent-browser-session_\${RUN_ID}-risk_40:${KEY}@${GW}:${port}`;
-	const named = `${proto}://rt_wa_bridge:${KEY}@rt-wa-bridge.${GW}:${port}`;
-
 	return (
 		<>
-			<PageHead
-				title="Connect"
-				sub="Any SOCKS5 or HTTP client works. No SDK needed: the policy lives in the username or in a named route."
-				actions={
-					<Segmented
-						value={proto}
-						onChange={setProto}
-						options={[
-							{ value: "socks5", label: "SOCKS5 :1080" },
-							{ value: "http", label: "HTTP CONNECT :8080" },
-						]}
-					/>
-				}
-			/>
+			<div className="page-head">
+				<h1>🔌 Connect</h1>
+				<Segmented
+					value={proto}
+					onChange={setProto}
+					options={[
+						{ value: "socks5", label: "🧦 SOCKS5 :1080" },
+						{ value: "http", label: "🌐 HTTP :8080" },
+					]}
+				/>
+			</div>
+
+			<div className="card card-pad" style={{ marginBottom: 16 }}>
+				<div className="row" style={{ marginBottom: 12, gap: 8 }}>
+					<span className="big-icon">🤖</span>
+					<b>Ad-hoc: settings ride in the username</b>
+				</div>
+				<div className="anatomy">
+					<span className="plain">{proto}://</span>
+					{PARTS.map((p, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: static diagram
+						<span key={i} className="seg-part" style={{ color: p.color }}>
+							<code
+								style={
+									p.label ? undefined : { borderBottomColor: "transparent" }
+								}
+							>
+								{p.text}
+							</code>
+							{p.label && <span className="seg-lbl">{p.label}</span>}
+						</span>
+					))}
+					<span className="plain">:{port}</span>
+				</div>
+				<details className="dig" style={{ marginTop: 12 }}>
+					<summary>➕ more knobs: city_ · asn_ · exit_📱🏢🏠 · target_</summary>
+					<div className="dig-body row" style={{ flexWrap: "wrap" }}>
+						<span className="chip mono">city_berlin</span>
+						<span className="chip mono">asn_3320</span>
+						{(Object.keys(EXIT_ICON) as (keyof typeof EXIT_ICON)[]).map((e) => (
+							<span key={e} className="chip mono">
+								{EXIT_ICON[e]} exit_{e}
+							</span>
+						))}
+						<span className="chip mono">🎯 target_linkedin.com</span>
+						<span className="faint">omit session_ → 🔄 rotating</span>
+					</div>
+				</details>
+			</div>
 
 			<div className="split" style={{ marginBottom: 16 }}>
 				<div className="card card-pad">
-					<div className="card-title">A · Ad-hoc session (username params)</div>
-					<p className="muted" style={{ marginTop: 0 }}>
-						Best for browser agents. Same{" "}
-						<span className="mono">session_*</span> means same exit IP until the
-						session goes idle.
-					</p>
-					<CopyField value={adhoc} />
-					<table className="tbl" style={{ marginTop: 12 }}>
-						<tbody>
-							<Param
-								k="route_<name>"
-								v="Inherit a saved route policy (optional)"
-							/>
-							<Param k="session_<id>" v="Sticky key. Omit for rotating." />
-							<Param k="risk_<0-100>" v="Override the route's risk dial" />
-							<Param
-								k="country_<cc> / city_<x> / asn_<n>"
-								v="Geo constraints"
-							/>
-							<Param k="exit_<mobile|isp|residential>" v="Restrict exit type" />
-							<Param
-								k="target_<host>"
-								v="Hint for cheapest-exit lookup (else read from CONNECT/SNI)"
-							/>
-						</tbody>
-					</table>
+					<div className="row" style={{ marginBottom: 12, gap: 8 }}>
+						<span className="big-icon">🌉</span>
+						<b>Named route: policy stays server-side</b>
+					</div>
+					<Flow
+						from="🌉"
+						exit="mobile"
+						ip="172.58.201.44 · 41d"
+						mode="sticky"
+					/>
+					<div style={{ marginTop: 12 }}>
+						<CopyField
+							value={`${proto}://rt_wa_bridge:${KEY}@rt-wa-bridge.${GW}:${port}`}
+						/>
+					</div>
 				</div>
 				<div className="card card-pad">
-					<div className="card-title">B · Named route endpoint</div>
-					<p className="muted" style={{ marginTop: 0 }}>
-						Best for long-lived clients like bridges. The policy stays
-						server-side and the client config never changes.
-					</p>
-					<CopyField value={named} />
-					<div className="kv" style={{ marginTop: 12 }}>
-						<span className="muted">Route</span>
-						<span className="mono">mautrix-whatsapp</span>
+					<div className="row" style={{ marginBottom: 12, gap: 8 }}>
+						<span className="big-icon">🔍</span>
+						<b>Check your exit</b>
 					</div>
-					<div className="kv">
-						<span className="muted">Pinned exit</span>
-						<span className="mono">172.58.201.44 · AS21928</span>
-					</div>
-					<div className="kv">
-						<span className="muted">On pin loss</span>
-						<span>Fail closed + webhook</span>
-					</div>
-					<div className="kv">
-						<span className="muted">Check exit</span>
-						<span className="mono">curl -x … https://{GW}/whoami</span>
-					</div>
+					<pre className="code">{`$ curl -x ${proto}://…@${GW}:${port} https://${GW}/whoami
+{ "ip": "172.58.201.44", "type": "📱 mobile",
+  "asn": 21928, "fraud": 4, "pinned": "41d" }`}</pre>
 				</div>
 			</div>
 
@@ -108,46 +131,24 @@ export function Quickstart() {
 	);
 }
 
-function Param({ k, v }: { k: string; v: string }) {
-	return (
-		<tr>
-			<td className="mono" style={{ color: "var(--accent)", width: "45%" }}>
-				{k}
-			</td>
-			<td className="muted">{v}</td>
-		</tr>
-	);
-}
-
 const SNIPPETS: Record<Snippet, (p: Proto, port: number) => string> = {
-	playwright: (p, port) => `import { chromium } from "playwright";
-
-// One sticky exit per agent run; released when the session idles out.
-const browser = await chromium.launch({
+	playwright: (p, port) => `const browser = await chromium.launch({
   proxy: {
     server: "${p}://${GW}:${port}",
-    username: \`user-route_agent-browser-session_\${runId}-risk_40\`,
+    username: \`user-route_agent-session_\${runId}-risk_40\`,
     password: process.env.HUMANIP_KEY,
   },
 });`,
-	"browser-use": (p, port) => `from browser_use import Agent, BrowserProfile
-
-profile = BrowserProfile(proxy={
+	"browser-use": (p, port) => `profile = BrowserProfile(proxy={
     "server": "${p}://${GW}:${port}",
-    "username": f"user-route_agent-browser-session_{run_id}-target_linkedin.com",
+    "username": f"user-session_{run_id}-target_linkedin.com",
     "password": os.environ["HUMANIP_KEY"],
-})
-agent = Agent(task=task, llm=llm, browser_profile=profile)`,
-	mautrix: (p, port) => `# mautrix-whatsapp config.yaml
-# The named route keeps the same mobile IP for the bridge's lifetime.
+})`,
+	mautrix: (p, port) => `# config.yaml
 proxy:
-  url: ${p}://rt_wa_bridge:\${HUMANIP_KEY}@rt-wa-bridge.${GW}:${port}
-  # Optional: fetch the proxy URL dynamically (rotates creds, never the IP)
-  get_proxy_url: https://api.humanip.io/v1/routes/rt_wa_bridge/proxy-url`,
-	curl: (p, port) => `# Quote before connecting
-curl -H "Authorization: Bearer $HUMANIP_KEY" \\
+  url: ${p}://rt_wa_bridge:\${HUMANIP_KEY}@rt-wa-bridge.${GW}:${port}`,
+	curl: (p, port) => `curl -H "Authorization: Bearer $HUMANIP_KEY" \\
   "https://api.humanip.io/v1/quote?url=https://linkedin.com&risk=35"
 
-# Connect through a sticky session
-curl -x ${p}://user-session_demo-risk_35:$HUMANIP_KEY@${GW}:${port} https://${GW}/whoami`,
+curl -x ${p}://user-session_demo:$HUMANIP_KEY@${GW}:${port} https://${GW}/whoami`,
 };

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ExitBadge, Meter, PageHead } from "../components/ui";
+import { EXIT_ICON, Ring } from "../components/visual";
 import {
 	effectivePrice,
 	eligibleOffers,
@@ -18,6 +18,8 @@ const domainOf = (url: string) => {
 		return url;
 	}
 };
+
+const MEDAL = ["🥇", "🥈", "🥉"];
 
 export function PriceLookup() {
 	const [url, setUrl] = useState("https://www.linkedin.com/in/");
@@ -41,96 +43,102 @@ export function PriceLookup() {
 			}),
 		[eligible, domain],
 	);
-	const best = ranked.find((o) => eligible.has(o));
+	const top = ranked.filter((o) => eligible.has(o)).slice(0, 3);
+	const best = top[0];
+	// Podium order: 2nd, 1st, 3rd.
+	const podium = [top[1], top[0], top[2]].map((o, i) => ({
+		o,
+		place: [1, 0, 2][i],
+	}));
 
 	return (
 		<>
-			<PageHead
-				title="Price lookup"
-				sub="Cheapest exit that works on a site, by success rate on that domain, within your risk budget."
-			/>
+			<div className="page-head">
+				<h1>💲 Price lookup</h1>
+			</div>
 
-			<div className="card card-pad" style={{ marginBottom: 16 }}>
-				<div className="row" style={{ gap: 16, alignItems: "flex-end" }}>
-					<div className="field" style={{ flex: 1, margin: 0 }}>
-						<label htmlFor="lurl">Target URL</label>
-						<input
-							id="lurl"
-							className="input mono"
-							value={url}
-							onChange={(e) => setUrl(e.target.value)}
-						/>
-					</div>
-					<div className="field" style={{ width: 280, margin: 0 }}>
-						<span className="field-label">
-							Risk {risk} · {riskLabel(risk)}
-						</span>
-						<input
-							type="range"
-							className="risk-slider"
-							aria-label="Risk"
-							style={{ margin: "8px 0" }}
-							min={0}
-							max={100}
-							value={risk}
-							onChange={(e) => setRisk(Number(e.target.value))}
-						/>
-					</div>
-					<button type="button" className="btn btn-primary">
-						Create route with best
-					</button>
-				</div>
+			<div className="card card-pad row" style={{ gap: 16, marginBottom: 16 }}>
+				<span style={{ fontSize: 20 }}>🎯</span>
+				<input
+					className="input mono"
+					style={{ flex: 1 }}
+					value={url}
+					aria-label="Target URL"
+					onChange={(e) => setUrl(e.target.value)}
+				/>
+				<span title="risk">🛡️</span>
+				<input
+					type="range"
+					className="risk-slider"
+					aria-label="Risk"
+					style={{ width: 200, margin: 0 }}
+					min={0}
+					max={100}
+					value={risk}
+					onChange={(e) => setRisk(Number(e.target.value))}
+				/>
+				<span>💸</span>
+				<span
+					className="badge"
+					style={{ minWidth: 96, justifyContent: "center" }}
+				>
+					{risk} · {riskLabel(risk)}
+				</span>
 			</div>
 
 			<div
 				className="split"
-				style={{ marginBottom: 16, gridTemplateColumns: "1fr 2fr" }}
+				style={{ gridTemplateColumns: "5fr 6fr", marginBottom: 16 }}
 			>
-				<div className="card card-pad">
-					<div className="card-title">Recommendation for {domain}</div>
-					{best ? (
-						<>
-							<div className="row" style={{ gap: 8, marginBottom: 6 }}>
-								<span style={{ fontSize: 16, fontWeight: 600 }}>
-									{best.provider}
-								</span>
-								<ExitBadge type={best.exitType} />
-							</div>
-							<div className="big-cost">
-								{usd(withTake(effectivePrice(best, domain)))}
-								<span
-									className="muted"
-									style={{ fontSize: 13, fontWeight: 400 }}
+				<div className="podium">
+					{podium.map(({ o, place }) =>
+						o ? (
+							<div
+								key={o.provider}
+								className={`step${place === 0 ? " first" : ""}`}
+							>
+								<div className="medal">{MEDAL[place]}</div>
+								<div className="big-icon" style={{ margin: "6px 0" }}>
+									{EXIT_ICON[o.exitType]}
+								</div>
+								<b>{o.provider}</b>
+								<div
+									className={place === 0 ? "big-cost" : "money"}
+									style={{ marginTop: 6 }}
 								>
-									{" "}
-									/ successful GB
-								</span>
+									{usd(withTake(effectivePrice(o, domain)))}
+								</div>
+								<div
+									className="faint"
+									style={{ fontSize: 11, marginBottom: 10 }}
+								>
+									per working GB
+								</div>
+								<div
+									className="row"
+									style={{ justifyContent: "center", gap: 10 }}
+								>
+									<Ring
+										value={Math.round(successRate(domain, o.provider) * 100)}
+										label="works"
+										size={44}
+									/>
+									<Ring value={o.fraudScore} label="fraud" invert size={44} />
+								</div>
 							</div>
-							<div className="kv">
-								<span className="muted">List price + 5%</span>
-								<span className="mono">
-									{usd(withTake(best.pricePerGb))}/GB
-								</span>
-							</div>
-							<div className="kv">
-								<span className="muted">Success on {domain} · 7d</span>
-								<span className="mono">
-									{Math.round(successRate(domain, best.provider) * 100)}%
-								</span>
-							</div>
-							<div className="kv">
-								<span className="muted">Samples</span>
-								<span className="mono">48,211 requests</span>
-							</div>
-						</>
-					) : (
-						<div className="muted">
-							No provider fits this risk budget. Raise risk or widen exit types.
-						</div>
+						) : (
+							<div key={place} />
+						),
 					)}
 				</div>
 				<div className="card card-pad">
-					<div className="card-title">Cost vs success · {domain}</div>
+					<div className="legend" style={{ marginBottom: 6 }}>
+						<span>↑ works more</span>
+						<span>→ costs more</span>
+						<span style={{ marginLeft: "auto" }}>
+							📱 🏢 🏠 · faded = over budget
+						</span>
+					</div>
 					<Scatter
 						offers={ranked}
 						eligible={eligible}
@@ -140,50 +148,46 @@ export function PriceLookup() {
 				</div>
 			</div>
 
-			<div className="card">
-				<table className="tbl">
+			<details className="dig card card-pad">
+				<summary>
+					📋 all {OFFERS.length} providers · {OFFERS.length - eligible.size}{" "}
+					over your risk budget
+				</summary>
+				<table className="tbl dig-body">
 					<thead>
 						<tr>
-							<th>#</th>
+							<th />
 							<th>Provider</th>
-							<th>Exit</th>
-							<th>Sourcing</th>
-							<th className="num">List $/GB</th>
-							<th className="num">Success</th>
-							<th className="num">Effective $/GB</th>
-							<th>Pool fraud</th>
-							<th>Fits risk {risk}?</th>
+							<th className="num">List</th>
+							<th className="num">Works</th>
+							<th className="num">Per working GB</th>
+							<th>🛡️</th>
+							<th>Fits?</th>
 						</tr>
 					</thead>
 					<tbody>
-						{ranked.map((o, i) => {
+						{ranked.map((o) => {
 							const ok = eligible.has(o);
 							return (
 								<tr
 									key={o.provider}
 									className={o === best ? "hl" : ok ? "" : "dim"}
 								>
-									<td className="mono faint">{i + 1}</td>
+									<td>{EXIT_ICON[o.exitType]}</td>
 									<td style={{ fontWeight: 600 }}>{o.provider}</td>
-									<td>
-										<ExitBadge type={o.exitType} />
-									</td>
-									<td className="muted">{o.sourcing}</td>
 									<td className="num mono">{usd(withTake(o.pricePerGb))}</td>
 									<td className="num mono">
 										{Math.round(successRate(domain, o.provider) * 100)}%
 									</td>
-									<td className="num mono" style={{ fontWeight: 600 }}>
+									<td className="num mono">
 										{usd(withTake(effectivePrice(o, domain)))}
 									</td>
-									<td>
-										<Meter value={o.fraudScore} invert />
-									</td>
+									<td className="mono">{o.fraudScore}</td>
 									<td>
 										{ok ? (
-											<span className="badge badge-good">Yes</span>
+											"✅"
 										) : (
-											<span className="badge">{whyNot(o, resolved)}</span>
+											<span className="faint">✖ {whyNot(o, resolved)}</span>
 										)}
 									</td>
 								</tr>
@@ -191,11 +195,10 @@ export function PriceLookup() {
 						})}
 					</tbody>
 				</table>
-			</div>
-			<p className="faint" style={{ marginTop: 10 }}>
-				Effective price = list price ÷ success rate, i.e. what you pay once
-				retries are counted. All prices include the 5% humanip fee.
-			</p>
+				<p className="faint">
+					Per working GB = list price ÷ success rate. Includes the 5% fee.
+				</p>
+			</details>
 		</>
 	);
 }
@@ -270,15 +273,26 @@ function Scatter({
 				})),
 			).map(({ o, cx, cy, ly }) => (
 				<g key={o.provider} opacity={eligible.has(o) ? 1 : 0.3}>
-					<circle
-						cx={cx}
-						cy={cy}
-						r={o === best ? 7 : 5}
-						fill={`var(--${o.exitType})`}
-						stroke={o === best ? "var(--text)" : "none"}
-						strokeWidth="2"
-					/>
-					<text x={cx + 10} y={ly + 4} fontSize="10.5" fill="var(--text-2)">
+					{o === best && (
+						<circle
+							cx={cx}
+							cy={cy}
+							r={13}
+							fill="var(--accent-dim)"
+							stroke="var(--accent)"
+							strokeWidth="2"
+						/>
+					)}
+					<text x={cx} y={cy + 5} fontSize="14" textAnchor="middle">
+						{EXIT_ICON[o.exitType]}
+					</text>
+					<text
+						x={cx > W - 110 ? cx - 15 : cx + 15}
+						y={ly + 4}
+						textAnchor={cx > W - 110 ? "end" : "start"}
+						fontSize="10.5"
+						fill="var(--text-2)"
+					>
 						{o.provider}
 					</text>
 				</g>

@@ -1,177 +1,138 @@
-import { ExitBadge, Meter, PageHead, Sparkline } from "../components/ui";
+import { Sparkline } from "../components/ui";
+import { Flow, MODE_ICON, Ring, USE_ICON } from "../components/visual";
 import { ACCOUNT, ROUTES, type RouteRow } from "../lib/mock";
 import { PIN_LOSS_LABEL, usd } from "../lib/policy";
 
-const STATUS: Record<RouteRow["status"], { cls: string; label: string }> = {
-	healthy: { cls: "badge-good", label: "Healthy" },
-	degraded: { cls: "badge-warn", label: "Degraded" },
-	pin_lost: { cls: "badge-bad", label: "Pin lost" },
-};
-
-const USE_CASE: Record<RouteRow["useCase"], string> = {
-	browser: "Browser session",
-	mautrix: "Bridge",
-	scrape: "Scrape",
-};
-
 export function Dashboard() {
-	const lost = ROUTES.filter((r) => r.status === "pin_lost");
 	const totalGb = ROUTES.reduce((s, r) => s + r.gb30d, 0);
 	const live = ROUTES.reduce((s, r) => s + r.sessions, 0);
-	const pinned = ROUTES.filter((r) => r.mode === "sticky" && r.pinnedFor);
+	const pins = ROUTES.filter(
+		(r) => r.mode === "sticky" && r.useCase === "mautrix",
+	).length;
 
 	return (
 		<>
-			<PageHead
-				title="Routes"
-				sub="Every client connects through a route. Each route's policy decides its exit."
-				actions={
-					<>
-						<button type="button" className="btn">
-							Export usage
-						</button>
-						<a href="#/new" className="btn btn-primary">
-							+ New route
-						</a>
-					</>
-				}
-			/>
-
-			{lost.map((r) => (
-				<div className="callout" key={r.id}>
-					<span className="badge badge-bad">
-						<span className="dot" />
-						Fail closed
-					</span>
-					<span className="grow">
-						<b>{r.name}</b> lost its pinned exit ({r.asn}, {r.geo}) 14m ago.
-						Connections are refused until you choose a replacement. Webhook sent
-						to <span className="mono">ops@bridge.example</span>.
-					</span>
-					<button type="button" className="btn">
-						Pick replacement in AS3320
-					</button>
-					<button type="button" className="btn">
-						Retry original
-					</button>
-				</div>
-			))}
-
-			<div className="stats">
-				<Stat
-					label="Spend · 30d"
-					value={usd(ACCOUNT.spend30d)}
-					sub="incl. 5% fee"
-				/>
-				<Stat
-					label="Bandwidth · 30d"
-					value={`${totalGb.toFixed(1)} GB`}
-					sub="across 5 routes"
-				/>
-				<Stat
-					label="Live sessions"
-					value={String(live)}
-					sub={`${pinned.length} long-lived pins`}
-				/>
-				<Stat
-					label="Median fraud score"
-					value="18"
-					sub="IPQS + Scamalytics blend"
-				/>
+			<div className="page-head">
+				<h1>🗺️ Routes</h1>
+				<a href="#/new" className="btn btn-primary">
+					➕ New route
+				</a>
 			</div>
 
-			<div className="card">
-				<table className="tbl">
-					<thead>
-						<tr>
-							<th>Route</th>
-							<th>Policy</th>
-							<th>Exit</th>
-							<th>Current IP / pool</th>
-							<th>Health · 24h</th>
-							<th>Fraud</th>
-							<th className="num">GB · 30d</th>
-							<th className="num">Spend</th>
-							<th>Status</th>
-						</tr>
-					</thead>
-					<tbody>
-						{ROUTES.map((r) => (
-							<tr key={r.id}>
-								<td>
-									<div style={{ fontWeight: 600 }}>{r.name}</div>
-									<div className="faint mono" style={{ fontSize: 11 }}>
-										{USE_CASE[r.useCase]} · {r.id}
-									</div>
-								</td>
-								<td>
-									<div>
-										{r.mode === "sticky" ? "Sticky" : "Rotating"}
-										<span className="faint"> · risk {r.risk}</span>
-									</div>
-									{r.pinLoss && (
-										<div className="faint" style={{ fontSize: 11 }}>
-											{PIN_LOSS_LABEL[r.pinLoss]}
-										</div>
-									)}
-								</td>
-								<td>
-									<ExitBadge type={r.exitType} />
-									<div className="faint" style={{ fontSize: 11, marginTop: 3 }}>
-										via {r.provider}
-									</div>
-								</td>
-								<td>
-									<div className="mono">{r.exitIp}</div>
-									<div className="faint" style={{ fontSize: 11 }}>
-										{r.geo}
-										{r.pinnedFor && ` · pinned ${r.pinnedFor}`}
-									</div>
-								</td>
-								<td>
-									<div className="row" style={{ gap: 8 }}>
-										<Sparkline points={r.spark} />
-										<span className="mono">{r.health}</span>
-									</div>
-								</td>
-								<td>
-									{r.status === "pin_lost" ? (
-										<span className="faint">n/a</span>
-									) : (
-										<Meter value={r.fraudScore} invert />
-									)}
-								</td>
-								<td className="num mono">{r.gb30d.toFixed(2)}</td>
-								<td className="num mono">{usd(r.spend30d)}</td>
-								<td>
-									<span className={`badge ${STATUS[r.status].cls}`}>
-										<span className="dot" />
-										{STATUS[r.status].label}
-									</span>
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
+			<div className="stat-row">
+				<Chip icon="💸" value={usd(ACCOUNT.spend30d, 0)} sub="30d" />
+				<Chip icon="📦" value={`${totalGb.toFixed(0)} GB`} sub="30d" />
+				<Chip icon="🔗" value={String(live)} sub="live" />
+				<Chip icon="📌" value={String(pins)} sub="pins" />
+				<Chip icon="🛡️" value="18" sub="median fraud" />
+			</div>
+
+			<div className="cards">
+				{ROUTES.map((r) => (
+					<RouteCard key={r.id} r={r} />
+				))}
 			</div>
 		</>
 	);
 }
 
-function Stat({
-	label,
+function RouteCard({ r }: { r: RouteRow }) {
+	const lost = r.status === "pin_lost";
+	return (
+		<div className={`rcard${lost ? " lost" : ""}`}>
+			<div className="rcard-head">
+				<span className="big-icon" title={r.useCase}>
+					{USE_ICON[r.useCase]}
+				</span>
+				<div style={{ flex: 1, minWidth: 0 }}>
+					<div className="rcard-name">{r.name}</div>
+					<div className="faint" style={{ fontSize: 11 }}>
+						{MODE_ICON[r.mode]} {r.mode} · {r.geo}
+					</div>
+				</div>
+				{lost ? (
+					<span className="badge badge-bad">✖ pin lost</span>
+				) : r.status === "degraded" ? (
+					<span className="badge badge-warn">▲ degraded</span>
+				) : (
+					<span className="badge badge-good">● ok</span>
+				)}
+			</div>
+
+			<Flow
+				from={USE_ICON[r.useCase]}
+				exit={r.exitType}
+				ip={r.pinnedFor ? `${r.exitIp} · ${r.pinnedFor}` : r.exitIp}
+				mode={r.mode}
+				broken={lost}
+			/>
+
+			{lost ? (
+				<div className="row">
+					<button type="button" className="btn btn-primary">
+						🔁 Replace in AS3320
+					</button>
+					<button type="button" className="btn">
+						↺ Retry
+					</button>
+				</div>
+			) : (
+				<div className="rcard-foot">
+					<div className="row" style={{ gap: 14 }}>
+						<Ring value={r.health} label="health" />
+						<Ring value={r.fraudScore} label="fraud" invert />
+						<Sparkline points={r.spark} />
+					</div>
+					<div style={{ textAlign: "right" }}>
+						<div className="money">{usd(r.spend30d)}</div>
+						<div className="faint mono" style={{ fontSize: 11 }}>
+							{r.gb30d.toFixed(1)} GB
+						</div>
+					</div>
+				</div>
+			)}
+
+			<details className="dig">
+				<summary>
+					via {r.provider}
+					{r.pinLoss &&
+						` · on loss: ${PIN_LOSS_LABEL[r.pinLoss].toLowerCase()}`}
+				</summary>
+				<div className="dig-body">
+					<KV k="Route ID" v={r.id} />
+					<KV k="ASN" v={r.asn} />
+					<KV k="Risk dial" v={String(r.risk)} />
+					<KV k="Live sessions" v={String(r.sessions)} />
+					{lost && <KV k="Alert" v="webhook → ops@bridge.example" />}
+				</div>
+			</details>
+		</div>
+	);
+}
+
+function KV({ k, v }: { k: string; v: string }) {
+	return (
+		<div className="kv">
+			<span className="muted">{k}</span>
+			<span className="mono">{v}</span>
+		</div>
+	);
+}
+
+function Chip({
+	icon,
 	value,
 	sub,
 }: {
-	label: string;
+	icon: string;
 	value: string;
 	sub: string;
 }) {
 	return (
-		<div className="card card-pad">
-			<div className="stat-label">{label}</div>
-			<div className="stat-value">{value}</div>
-			<div className="stat-sub">{sub}</div>
+		<div className="stat-chip" title={sub}>
+			<span>{icon}</span>
+			{value}
+			<small>{sub}</small>
 		</div>
 	);
 }

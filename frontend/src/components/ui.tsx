@@ -1,38 +1,4 @@
 import { useState } from "react";
-import { EXIT_LABEL, type ExitType } from "../lib/policy";
-
-export function ExitBadge({ type }: { type: ExitType }) {
-	return (
-		<span className={`badge exit-${type}`}>
-			<span className="dot" />
-			{EXIT_LABEL[type]}
-		</span>
-	);
-}
-
-/** 0-100 score bar. `invert` means lower is better (fraud scores). */
-export function Meter({ value, invert }: { value: number; invert?: boolean }) {
-	const good = invert ? 100 - value : value;
-	const color =
-		good >= 80 ? "var(--accent)" : good >= 60 ? "var(--warn)" : "var(--bad)";
-	return (
-		<span className="meter">
-			<span className="meter-track">
-				<span
-					className="meter-fill"
-					style={{
-						width: `${Math.max(value, 3)}%`,
-						background: color,
-						display: "block",
-					}}
-				/>
-			</span>
-			<span className="mono" style={{ color }}>
-				{value}
-			</span>
-		</span>
-	);
-}
 
 export function Sparkline({ points }: { points: number[] }) {
 	const w = 84;
@@ -92,26 +58,6 @@ export function Segmented<T extends string>({
 					{o.label}
 				</button>
 			))}
-		</div>
-	);
-}
-
-export function PageHead({
-	title,
-	sub,
-	actions,
-}: {
-	title: string;
-	sub: string;
-	actions?: React.ReactNode;
-}) {
-	return (
-		<div className="page-head">
-			<div>
-				<h1>{title}</h1>
-				<p>{sub}</p>
-			</div>
-			{actions && <div className="row">{actions}</div>}
 		</div>
 	);
 }
