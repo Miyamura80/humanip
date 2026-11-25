@@ -4,6 +4,8 @@
 //! Forwarding v1 limitation: each client connection carries exactly one
 //! forwarded request. The rewritten head says `Connection: close`, so the
 //! origin closes after its response and response framing is never parsed.
+//! Chunked request bodies are refused by the server with 411 until a chunked
+//! parser lands (their end is unknown, so pipelining after them is unsafe).
 //! Client side (chaining to a provider): [`client_connect`].
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};

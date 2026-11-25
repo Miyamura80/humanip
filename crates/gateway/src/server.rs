@@ -187,6 +187,15 @@ impl Gateway {
             http::ProxyRequest::Connect(c) => (c.target, c.credentials, None),
             http::ProxyRequest::Forward(f) => (f.target, f.credentials, Some((f.head, f.body))),
         };
+        // Chunked request bodies are not parsed yet, so the end of the body is
+        // unknown and a pipelined request after it could reach the origin with
+        // Proxy-Authorization intact. Refuse them until a chunked parser lands;
+        // clients retry with Content-Length.
+        if matches!(forward, Some((_, http::RequestBody::Streamed))) {
+            http::write_response(&mut client, 411, "Length Required", &CLOSE).await?;
+            close_gracefully(&mut client).await;
+            return Err(ProtoError::Protocol("chunked request body".into()));
+        }
         // Forwarded requests get explicit framing on gateway-made responses so
         // clients do not wait for a body; CONNECT replies stay as before.
         let extra: &[(&str, &str)] = if forward.is_some() { &CLOSE } else { &[] };
@@ -220,6 +229,22 @@ impl Gateway {
             }
         }
         Ok(())
+    }
+}
+
+/// Send FIN, then drain what the client already sent (bounded) before the
+/// socket drops. Closing with unread input makes the kernel send RST, which
+/// can destroy a response the client has not read yet.
+async fn close_gracefully(client: &mut TcpStream) {
+    let _ = client.shutdown().await;
+    let mut sink = [0u8; 4096];
+    let mut left: usize = 64 * 1024;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    while left > 0 {
+        match tokio::time::timeout_at(deadline, client.read(&mut sink)).await {
+            Ok(Ok(n)) if n > 0 => left = left.saturating_sub(n),
+            _ => break,
+        }
     }
 }
 

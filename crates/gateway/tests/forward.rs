@@ -164,6 +164,27 @@ async fn post_body_reaches_origin_intact() {
 }
 
 #[tokio::test]
+async fn chunked_request_body_is_refused_with_411() {
+    let origin = origin_server().await;
+    let proxy = chain().await;
+    // A pipelined request after a chunked body must never reach the origin.
+    let req = format!(
+        "POST http://{origin}/up HTTP/1.1\r\n{}Transfer-Encoding: chunked\r\n\r\n\
+         5\r\nhello\r\n0\r\n\r\nGET http://{origin}/two HTTP/1.1\r\n{}\r\n",
+        auth("user", "ka"),
+        auth("user", "ka")
+    );
+    let resp = send(proxy, &req).await;
+    let (status, _) = split(&resp);
+    assert_eq!(status, "HTTP/1.1 411 Length Required");
+    assert_eq!(
+        resp.matches("HTTP/1.1").count(),
+        1,
+        "nothing reached the origin: {resp}"
+    );
+}
+
+#[tokio::test]
 async fn pipelined_second_request_is_not_forwarded() {
     let origin = origin_server().await;
     let proxy = chain().await;
