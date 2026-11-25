@@ -1,0 +1,35 @@
+# Single-host deployment of the gateway. From the repo root:
+#   export HUMANIP_ADMIN_TOKEN=... HUMANIP_API_KEY_DEFAULT=... \
+#          NETNUT_PASSWORD=... IPROXY_PASSWORD=...
+#   docker compose -f deploy/docker-compose.yml up --build
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gateway
+    image: humanip-gateway:local
+    restart: unless-stopped
+    stop_signal: SIGTERM
+    stop_grace_period: 15s
+    environment:
+      HUMANIP_CONFIG: /etc/humanip/gateway.yaml
+      HUMANIP_LOG_FORMAT: json
+      RUST_LOG: ${RUST_LOG:-info}
+      HUMANIP_SHUTDOWN_GRACE_SECS: "10"
+      # Secrets come from the shell or an .env file beside this file.
+      HUMANIP_ADMIN_TOKEN: ${HUMANIP_ADMIN_TOKEN:?set HUMANIP_ADMIN_TOKEN}
+      HUMANIP_API_KEY_DEFAULT: ${HUMANIP_API_KEY_DEFAULT:?set HUMANIP_API_KEY_DEFAULT}
+      NETNUT_PASSWORD: ${NETNUT_PASSWORD:?set NETNUT_PASSWORD}
+      IPROXY_PASSWORD: ${IPROXY_PASSWORD:?set IPROXY_PASSWORD}
+    volumes:
+      - ./gateway.prod.example.yaml:/etc/humanip/gateway.yaml:ro
+      - gateway-data:/data
+    ports:
+      - "1080:1080"
+      - "8080:8080"
+      # Admin stays on loopback; put a TLS proxy in front to expose it.
+      - "127.0.0.1:9090:9090"
+
+volumes:
+  # Reserved for accounts_db (the SQLite ledger) once it ships.
+  gateway-data:

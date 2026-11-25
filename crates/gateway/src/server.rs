@@ -465,7 +465,8 @@ pub async fn run(cfg: GatewayConfig) -> io::Result<()> {
             }
         }
     });
-    // INTEGRATION: spawn the admin server (cfg.admin_listen) here with gw.accounts().
+    // The humanip-gateway binary uses main.rs's serve_all, which adds the
+    // admin server and graceful shutdown; this is the minimal library entry.
     tokio::try_join!(gw.clone().serve_socks(socks), gw.serve_http(http))?;
     Ok(())
 }

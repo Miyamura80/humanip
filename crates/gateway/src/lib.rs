@@ -12,6 +12,7 @@
 //! - [`server`]: accept loops that wire the above together.
 
 pub mod accounts_bridge;
+pub mod admin;
 pub mod config;
 pub mod health;
 pub mod http;

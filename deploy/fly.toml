@@ -1,0 +1,104 @@
+# Fly.io app for the humanip gateway. From the repo root:
+#   fly launch --no-deploy --copy-config --config deploy/fly.toml
+#   fly volumes create gateway_data --size 1 --region fra
+#   fly secrets set --config deploy/fly.toml HUMANIP_ADMIN_TOKEN=... \
+#     HUMANIP_API_KEY_DEFAULT=... NETNUT_PASSWORD=... IPROXY_PASSWORD=...
+#   fly deploy . --config deploy/fly.toml --dockerfile deploy/Dockerfile.gateway
+#
+# Keep one machine (fly scale count 1): sticky pins live in process memory.
+# Proxy clients need a dedicated IPv4 for the raw TCP ports:
+#   fly ips allocate-v4 --config deploy/fly.toml
+
+app = "humanip-gateway"
+primary_region = "fra"
+kill_signal = "SIGTERM"
+kill_timeout = "15s"
+
+[build]
+  dockerfile = "Dockerfile.gateway"
+
+[env]
+  HUMANIP_CONFIG = "/etc/humanip/gateway.yaml"
+  HUMANIP_LOG_FORMAT = "json"
+  RUST_LOG = "info"
+
+[mounts]
+  source = "gateway_data"
+  destination = "/data"
+
+# SOCKS5: raw TCP passthrough. No handlers, so Fly neither terminates TLS
+# nor parses HTTP on this port.
+[[services]]
+  internal_port = 1080
+  protocol = "tcp"
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 1080
+
+  [services.concurrency]
+    type = "connections"
+    soft_limit = 4000
+    hard_limit = 5000
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+
+# HTTP proxy (CONNECT and absolute-form forwarding): also raw TCP. An "http"
+# handler here would break CONNECT and could strip Proxy-Authorization.
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 8080
+
+  [services.concurrency]
+    type = "connections"
+    soft_limit = 4000
+    hard_limit = 5000
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+
+# Admin API: Fly terminates TLS on 443 and forwards plain HTTP to 9090.
+# /metrics is unauthenticated and reachable through this service too; scrape
+# over the private network (humanip-gateway.internal:9090) and see
+# docs/deploy.md for blocking /metrics at the edge.
+[[services]]
+  internal_port = 9090
+  protocol = "tcp"
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+    method = "get"
+    path = "/healthz"
+    protocol = "http"
+
+# Fly's managed Prometheus scrapes this over the private network.
+[metrics]
+  port = 9090
+  path = "/metrics"

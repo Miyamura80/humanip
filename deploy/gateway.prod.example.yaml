@@ -1,0 +1,62 @@
+# Production gateway config template. Secrets are never written here: each
+# ${VAR} is read from the environment at startup (the gateway refuses to start
+# when one is unset), and ${VAR:-default} falls back to the default.
+#
+# Validate before deploying:
+#   humanip-gateway --config deploy/gateway.prod.example.yaml --check
+#
+# In a container, bind all interfaces. The proxy ports carry raw TCP (SOCKS5
+# and HTTP proxy protocol); do not put an HTTP load balancer in front of them.
+socks_listen: "${HUMANIP_SOCKS_LISTEN:-0.0.0.0:1080}"
+http_listen: "${HUMANIP_HTTP_LISTEN:-0.0.0.0:8080}"
+connect_timeout_ms: 10000
+
+# Admin API: /healthz and /metrics are unauthenticated, /admin/v1/* needs
+# "Authorization: Bearer <admin_token>". Keep 9090 on a private network or
+# behind TLS (see docs/deploy.md).
+admin_listen: "${HUMANIP_ADMIN_LISTEN:-0.0.0.0:9090}"
+admin_token: "${HUMANIP_ADMIN_TOKEN}"
+
+# Future: SQLite ledger on the mounted volume. When set, keys come from the
+# ledger and api_keys may be empty.
+# accounts_db: /data/accounts.db
+
+api_keys:
+  - name: default
+    key: "${HUMANIP_API_KEY_DEFAULT}"
+
+providers:
+  - name: netnut-isp
+    exit_type: isp
+    sourcing: verified
+    price_per_gb: 3.4
+    fraud_score: 12
+    max_sticky_minutes: 129600
+    latency_ms: 210
+    countries: [DE, US]
+    upstream:
+      kind: http
+      addr: "${NETNUT_ADDR:-gw.netnut.example:5959}"
+      username: "customer-sess-{session}-cc-{country}"
+      password: "${NETNUT_PASSWORD}"
+  - name: iproxy-mobile
+    exit_type: mobile
+    sourcing: verified
+    price_per_gb: 8.9
+    fraud_score: 5
+    max_sticky_minutes: 129600
+    latency_ms: 690
+    countries: [DE]
+    upstream:
+      kind: socks5
+      addr: "${IPROXY_ADDR:-de1.iproxy.example:1080}"
+      username: "{session}"
+      password: "${IPROXY_PASSWORD}"
+
+routes:
+  - name: default-sticky
+    mode: sticky
+    sticky: { ttl: forever, on_pin_loss: fail_closed }
+    exit_types: [mobile, isp]
+    geo: { country: DE }
+    risk: 5

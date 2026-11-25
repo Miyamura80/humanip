@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+# humanip gateway image. Build from the repo root:
+#   docker build -f deploy/Dockerfile.gateway -t humanip-gateway .
+
+# ---- Builder ----------------------------------------------------------------
+FROM rust:1.99.1-bookworm@sha256:48b7f435b8fc6378ce43b44f15e3a47fd8919b2825f835c39bd4bd3da50af5b8 AS builder
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+# Every workspace member must be present for cargo to load the workspace;
+# only the gateway's dependency graph is compiled.
+COPY crates ./crates
+COPY templates ./templates
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target,sharing=locked \
+    cargo build --locked --release -p humanip-gateway \
+    && cp target/release/humanip-gateway /usr/local/bin/humanip-gateway
+
+# ---- Runtime ----------------------------------------------------------------
+FROM debian:bookworm-20261020-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS runtime
+
+# curl backs the HEALTHCHECK; ca-certificates for TLS to future HTTPS upstreams.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/bin/humanip-gateway /usr/local/bin/humanip-gateway
+# Default config: every secret is a ${VAR} reference, so the image holds none.
+# Mount your own file over this path, or point HUMANIP_CONFIG elsewhere.
+COPY deploy/gateway.prod.example.yaml /etc/humanip/gateway.yaml
+
+RUN useradd --system --no-create-home --uid 10001 humanip \
+    && mkdir -p /data \
+    && chown humanip /data
+USER humanip
+
+ENV HUMANIP_CONFIG=/etc/humanip/gateway.yaml \
+    HUMANIP_LOG_FORMAT=json \
+    RUST_LOG=info
+
+# 1080 SOCKS5 and 8080 HTTP proxy are raw TCP; 9090 is the admin HTTP API.
+EXPOSE 1080 8080 9090
+VOLUME ["/data"]
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:9090/healthz || exit 1
+
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["humanip-gateway"]

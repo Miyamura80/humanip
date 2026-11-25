@@ -962,9 +962,11 @@ dependencies = [
  "humanip-ledger",
  "serde",
  "serde-saphyr",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
