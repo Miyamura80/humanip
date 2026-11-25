@@ -4,6 +4,8 @@
 
 use crate::providers::{self, AdapterRequest, Protocol};
 use crate::Upstream;
+use humanip_core::abuse::DomainRule;
+use humanip_core::accounts::KycTier;
 use humanip_core::policy::{ExitType, RoutePolicy, SourcingTier};
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -36,6 +38,20 @@ pub struct GatewayConfig {
     pub providers: Vec<ProviderConfig>,
     #[serde(default)]
     pub routes: Vec<RoutePolicy>,
+    /// SQLite ledger (keys, balances, usage). When set, keys come from the
+    /// ledger and `api_keys` may be empty; otherwise `api_keys` seed an
+    /// in-memory store (dev).
+    #[serde(default)]
+    pub accounts_db: Option<String>,
+    /// Admin HTTP listener (healthz, metrics, admin API). Off when unset.
+    #[serde(default)]
+    pub admin_listen: Option<String>,
+    /// Bearer token for `/admin/v1/*`. Required when `admin_listen` is set.
+    #[serde(default)]
+    pub admin_token: Option<String>,
+    /// Domains that need a minimum KYC tier (abuse controls).
+    #[serde(default)]
+    pub blocked_domains: Vec<DomainRule>,
 }
 
 impl GatewayConfig {
@@ -56,6 +72,15 @@ impl GatewayConfig {
 pub struct ApiKey {
     pub name: String,
     pub key: String,
+    /// Dev store only: verification tier for abuse rules.
+    #[serde(default)]
+    pub kyc_tier: KycTier,
+    /// Dev store only: monthly spend cap in USD.
+    #[serde(default)]
+    pub monthly_cap_usd: Option<f64>,
+    /// Dev store only: starting prepaid balance in USD (default 100).
+    #[serde(default)]
+    pub balance_usd: Option<f64>,
 }
 
 impl fmt::Debug for ApiKey {
@@ -255,8 +280,11 @@ fn validate(cfg: &GatewayConfig) -> Result<(), ConfigError> {
     if cfg.connect_timeout_ms == 0 {
         return Err(invalid("connect_timeout_ms must be positive"));
     }
-    if cfg.api_keys.is_empty() {
-        return Err(invalid("at least one api key is required"));
+    if cfg.api_keys.is_empty() && cfg.accounts_db.is_none() {
+        return Err(invalid("at least one api key (or accounts_db) is required"));
+    }
+    if cfg.admin_listen.is_some() && cfg.admin_token.as_deref().is_none_or(str::is_empty) {
+        return Err(invalid("admin_token is required when admin_listen is set"));
     }
     let (mut names, mut keys) = (HashSet::new(), HashSet::new());
     for k in &cfg.api_keys {

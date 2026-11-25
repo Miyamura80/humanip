@@ -8,6 +8,8 @@
 //! - [`sample`]: a small illustrative offer catalog for demos and tests. The
 //!   live price/reliability database is a separate, closed service.
 
+pub mod abuse;
+pub mod accounts;
 pub mod pareto;
 pub mod policy;
 pub mod sample;
