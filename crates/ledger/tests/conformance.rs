@@ -368,8 +368,18 @@ fn memory_and_sqlite_agree_on_a_mixed_script() {
             for i in 0..3 {
                 log.push(format!("{:?}", m.balance(f.acct(i))));
             }
-            log.push(format!("{:?}", m.usage_since(None, NOV_1)));
-            log.into_iter().map(norm).collect()
+            let mut log: Vec<String> = log.into_iter().map(norm).collect();
+            // Rows are ordered by real key ids, which are random; compare them
+            // after renaming to K0..K2 and sorting so the check is deterministic.
+            let mut rows: Vec<String> = m
+                .usage_since(None, NOV_1)
+                .expect("usage_since")
+                .into_iter()
+                .map(|r| norm(format!("{r:?}")))
+                .collect();
+            rows.sort();
+            log.extend(rows);
+            log
         })
         .collect();
     assert_eq!(outputs[0], outputs[1]);
