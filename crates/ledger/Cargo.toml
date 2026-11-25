@@ -1,0 +1,9 @@
+[package]
+name = "humanip-ledger"
+version = "0.1.0"
+edition = "2021"
+description = "SQLite ledger for humanip: hashed API keys, prepaid balances, usage, spend caps."
+license = "MIT"
+
+[dependencies]
+humanip-core = { path = "../humanip-core" }

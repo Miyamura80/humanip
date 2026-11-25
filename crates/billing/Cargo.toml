@@ -1,0 +1,9 @@
+[package]
+name = "humanip-billing"
+version = "0.1.0"
+edition = "2021"
+description = "Stripe Checkout top-ups (card and USDC) and webhook crediting for humanip."
+license = "MIT"
+
+[dependencies]
+humanip-core = { path = "../humanip-core" }

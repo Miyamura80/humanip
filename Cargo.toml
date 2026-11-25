@@ -1,3 +1,3 @@
 [workspace]
-members = ["crates/engine", "crates/config", "crates/cli", "crates/assetgen", "crates/humanip-core", "crates/gateway"]
+members = ["crates/engine", "crates/config", "crates/cli", "crates/assetgen", "crates/humanip-core", "crates/gateway", "crates/ledger", "crates/billing"]
 resolver = "2"
