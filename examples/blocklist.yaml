@@ -1,0 +1,164 @@
+# Default abuse blocklist for the humanip gateway.
+#
+# Why this exists: residential, ISP and mobile proxy vendors (Bright Data,
+# Oxylabs, Decodo, IPRoyal, NetNut and others) forbid resellers from sending
+# unverified traffic to sensitive targets in their acceptable-use policies
+# (AUPs). Typical AUP lists cover government and military sites, banks and
+# payment processors, crypto exchanges, healthcare portals and elections.
+# Breaking an AUP can get the whole reseller account suspended, so the gateway
+# enforces these rules before a request ever reaches a vendor.
+#
+# Review before you deploy. This is a starting point, not legal advice and not
+# a copy of any one vendor's AUP. Read the AUP of every vendor you route to,
+# add their extra categories, and keep this file in version control.
+#
+# Usage: paste the `blocked_domains:` list into your gateway config.
+#
+# Pattern rules (see docs/abuse.md):
+#   chase.com    matches chase.com and any subdomain (x.chase.com), not notchase.com
+#   .gov         matches any host ending in .gov, but not the bare "gov"
+#   10.0.0.0/8   matches IP-literal targets in the block (domains never match IPs)
+# Patterns must be lowercase ASCII; write internationalised names in punycode.
+# When several rules match, the strictest min_kyc wins.
+#
+# Tiers: none < basic < verified.
+#   verified: identity checked (KYC documents or business verification).
+#   basic:    account tied to a verified email and payment method.
+#
+# Keep it maintainable: list registrable domains and public suffixes, never
+# individual hosts. One pattern covers every subdomain.
+
+blocked_domains:
+  # ── Government and military: verified ───────────────────────────────
+  # Leading dot for public suffixes that are not sites themselves. Where the
+  # suffix is also a live site (gov.uk, bund.de) the plain form covers both.
+  - { pattern: ".gov", category: government, min_kyc: verified }
+  - { pattern: ".mil", category: government, min_kyc: verified }
+  - { pattern: "gov.uk", category: government, min_kyc: verified }
+  - { pattern: ".gouv.fr", category: government, min_kyc: verified }
+  - { pattern: "bund.de", category: government, min_kyc: verified }
+  - { pattern: "europa.eu", category: government, min_kyc: verified }
+  - { pattern: ".gc.ca", category: government, min_kyc: verified }
+  - { pattern: "canada.ca", category: government, min_kyc: verified }
+  - { pattern: ".gov.au", category: government, min_kyc: verified }
+  - { pattern: ".govt.nz", category: government, min_kyc: verified }
+  - { pattern: ".gov.ie", category: government, min_kyc: verified }
+  - { pattern: ".gv.at", category: government, min_kyc: verified }
+  - { pattern: "admin.ch", category: government, min_kyc: verified }
+  - { pattern: "rijksoverheid.nl", category: government, min_kyc: verified }
+  - { pattern: ".gob.es", category: government, min_kyc: verified }
+  - { pattern: ".gov.it", category: government, min_kyc: verified }
+  - { pattern: ".gov.pl", category: government, min_kyc: verified }
+  - { pattern: ".gov.br", category: government, min_kyc: verified }
+  - { pattern: ".gob.mx", category: government, min_kyc: verified }
+  - { pattern: ".gov.in", category: government, min_kyc: verified }
+  - { pattern: ".go.jp", category: government, min_kyc: verified }
+  - { pattern: ".gov.sg", category: government, min_kyc: verified }
+  - { pattern: ".gov.za", category: government, min_kyc: verified }
+
+  # ── Banking: verified ────────────────────────────────────────────────
+  # Primary domains of the largest US, UK and EU retail banks.
+  - { pattern: "chase.com", category: banking, min_kyc: verified }
+  - { pattern: "jpmorgan.com", category: banking, min_kyc: verified }
+  - { pattern: "bankofamerica.com", category: banking, min_kyc: verified }
+  - { pattern: "wellsfargo.com", category: banking, min_kyc: verified }
+  - { pattern: "citi.com", category: banking, min_kyc: verified }
+  - { pattern: "citibank.com", category: banking, min_kyc: verified }
+  - { pattern: "usbank.com", category: banking, min_kyc: verified }
+  - { pattern: "pnc.com", category: banking, min_kyc: verified }
+  - { pattern: "capitalone.com", category: banking, min_kyc: verified }
+  - { pattern: "truist.com", category: banking, min_kyc: verified }
+  - { pattern: "tdbank.com", category: banking, min_kyc: verified }
+  - { pattern: "schwab.com", category: banking, min_kyc: verified }
+  - { pattern: "americanexpress.com", category: banking, min_kyc: verified }
+  - { pattern: "discover.com", category: banking, min_kyc: verified }
+  - { pattern: "ally.com", category: banking, min_kyc: verified }
+  - { pattern: "barclays.co.uk", category: banking, min_kyc: verified }
+  - { pattern: "barclays.com", category: banking, min_kyc: verified }
+  - { pattern: "hsbc.co.uk", category: banking, min_kyc: verified }
+  - { pattern: "hsbc.com", category: banking, min_kyc: verified }
+  - { pattern: "lloydsbank.com", category: banking, min_kyc: verified }
+  - { pattern: "natwest.com", category: banking, min_kyc: verified }
+  - { pattern: "santander.co.uk", category: banking, min_kyc: verified }
+  - { pattern: "halifax.co.uk", category: banking, min_kyc: verified }
+  - { pattern: "nationwide.co.uk", category: banking, min_kyc: verified }
+  - { pattern: "monzo.com", category: banking, min_kyc: verified }
+  - { pattern: "starlingbank.com", category: banking, min_kyc: verified }
+  - { pattern: "bnpparibas.com", category: banking, min_kyc: verified }
+  - { pattern: "credit-agricole.fr", category: banking, min_kyc: verified }
+  - { pattern: "societegenerale.fr", category: banking, min_kyc: verified }
+  - { pattern: "deutsche-bank.de", category: banking, min_kyc: verified }
+  - { pattern: "commerzbank.de", category: banking, min_kyc: verified }
+  - { pattern: "sparkasse.de", category: banking, min_kyc: verified }
+  - { pattern: "ing.com", category: banking, min_kyc: verified }
+  - { pattern: "ing.nl", category: banking, min_kyc: verified }
+  - { pattern: "ing.de", category: banking, min_kyc: verified }
+  - { pattern: "rabobank.nl", category: banking, min_kyc: verified }
+  - { pattern: "abnamro.nl", category: banking, min_kyc: verified }
+  - { pattern: "santander.com", category: banking, min_kyc: verified }
+  - { pattern: "bbva.es", category: banking, min_kyc: verified }
+  - { pattern: "caixabank.es", category: banking, min_kyc: verified }
+  - { pattern: "unicredit.it", category: banking, min_kyc: verified }
+  - { pattern: "intesasanpaolo.com", category: banking, min_kyc: verified }
+  - { pattern: "ubs.com", category: banking, min_kyc: verified }
+  - { pattern: "nordea.com", category: banking, min_kyc: verified }
+
+  # ── Payments and money transfer: verified ────────────────────────────
+  - { pattern: "paypal.com", category: payments, min_kyc: verified }
+  - { pattern: "paypal.me", category: payments, min_kyc: verified }
+  - { pattern: "venmo.com", category: payments, min_kyc: verified }
+  - { pattern: "stripe.com", category: payments, min_kyc: verified }
+  - { pattern: "wise.com", category: payments, min_kyc: verified }
+  - { pattern: "revolut.com", category: payments, min_kyc: verified }
+  - { pattern: "cash.app", category: payments, min_kyc: verified }
+  - { pattern: "squareup.com", category: payments, min_kyc: verified }
+  - { pattern: "adyen.com", category: payments, min_kyc: verified }
+  - { pattern: "klarna.com", category: payments, min_kyc: verified }
+  - { pattern: "zellepay.com", category: payments, min_kyc: verified }
+  - { pattern: "westernunion.com", category: payments, min_kyc: verified }
+  - { pattern: "remitly.com", category: payments, min_kyc: verified }
+  - { pattern: "payoneer.com", category: payments, min_kyc: verified }
+  - { pattern: "skrill.com", category: payments, min_kyc: verified }
+
+  # ── Crypto exchanges: basic ──────────────────────────────────────────
+  # Basic, not verified: public market-data pages and APIs are a common,
+  # legitimate scraping target, and the exchanges run their own KYC before
+  # any funds move. The abuse vendors worry about here (signup farming,
+  # bonus abuse, credential stuffing) needs throwaway accounts, which a
+  # payment-backed basic account already deters. Raise to verified if any
+  # vendor you route to lists crypto alongside banking.
+  - { pattern: "coinbase.com", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "binance.com", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "binance.us", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "kraken.com", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "bitstamp.net", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "gemini.com", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "okx.com", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "bybit.com", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "kucoin.com", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "crypto.com", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "bitfinex.com", category: crypto_exchange, min_kyc: basic }
+  - { pattern: "bitget.com", category: crypto_exchange, min_kyc: basic }
+
+  # ── Healthcare patient portals: verified ─────────────────────────────
+  # Many hospital portals live on the hospital's own domain; add those for
+  # your market. These are the large shared portal platforms.
+  - { pattern: "mychart.com", category: healthcare, min_kyc: verified }
+  - { pattern: "followmyhealth.com", category: healthcare, min_kyc: verified }
+  - { pattern: "athenahealth.com", category: healthcare, min_kyc: verified }
+  - { pattern: "healow.com", category: healthcare, min_kyc: verified }
+  - { pattern: "nextmd.com", category: healthcare, min_kyc: verified }
+  - { pattern: "kp.org", category: healthcare, min_kyc: verified }
+  - { pattern: "nhs.uk", category: healthcare, min_kyc: verified }
+  - { pattern: "nhs.net", category: healthcare, min_kyc: verified }
+  - { pattern: "labcorp.com", category: healthcare, min_kyc: verified }
+  - { pattern: "questdiagnostics.com", category: healthcare, min_kyc: verified }
+
+  # ── Elections: verified ──────────────────────────────────────────────
+  # Most official election sites already fall under the government suffixes
+  # above (vote.gov, eac.gov, aec.gov.au). These cover the rest.
+  - { pattern: ".vote", category: elections, min_kyc: verified }
+  - { pattern: ".voto", category: elections, min_kyc: verified }
+  - { pattern: "electoralcommission.org.uk", category: elections, min_kyc: verified }
+  - { pattern: "elections.ca", category: elections, min_kyc: verified }
+  - { pattern: "vote.org", category: elections, min_kyc: verified }
