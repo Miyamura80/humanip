@@ -5,5 +5,15 @@ edition = "2021"
 description = "SQLite ledger for humanip: hashed API keys, prepaid balances, usage, spend caps."
 license = "MIT"
 
+[[bin]]
+name = "humanip-admin"
+path = "src/bin/humanip-admin.rs"
+
 [dependencies]
 humanip-core = { path = "../humanip-core" }
+rusqlite = { version = "0.37", features = ["bundled"] }
+sha2 = "0.10"
+getrandom = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
