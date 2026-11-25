@@ -1,5 +1,6 @@
-// Ready-to-copy proxy URLs for the newest active key. Only the key id is
-// shown; the secret is never stored client-side, so it stays a placeholder.
+// Ready-to-copy proxy URLs. The password is the API key (never stored
+// client-side, so it stays a placeholder); the username carries per-connection
+// settings for the gateway, e.g. `user-session_run1` for a sticky exit.
 
 import type { ApiKey } from "../../api/app";
 import { useGatewayConfig } from "../../api/resource";
@@ -9,7 +10,7 @@ import { CopyField } from "../../components/ui";
 export function QuickConnect({ keys }: { keys: ApiKey[] }) {
 	const cfg = useGatewayConfig();
 	const key = [...keys].reverse().find((k) => !k.revoked);
-	const user = key ? key.key_id : "<KEY_ID>";
+	const user = "user-session_run1";
 	const host = cfg?.gateway_host ?? "gw.humanip.io";
 	const socks = cfg?.socks_port ?? 1080;
 	const http = cfg?.http_port ?? 8080;
@@ -36,7 +37,7 @@ export function QuickConnect({ keys }: { keys: ApiKey[] }) {
 			</div>
 			<p className="faint" style={{ marginTop: 14 }}>
 				{key
-					? `Using key "${key.name}". Replace <YOUR_KEY> with its secret.`
+					? `Replace <YOUR_KEY> with the secret of "${key.name}". Same session_ value, same exit IP; drop it to rotate per connection.`
 					: "Create a key first, then replace <YOUR_KEY> with its secret."}
 				{!cfg && " Gateway address is a default until the server answers."}
 			</p>
