@@ -1,4 +1,5 @@
-//! Accept loops: SOCKS5 and HTTP CONNECT front ends over one selector.
+//! Accept loops: SOCKS5 and HTTP (CONNECT plus plain-HTTP forwarding) front
+//! ends over one selector.
 //!
 //! Per connection: handshake, authenticate (password = API key, username =
 //! settings), choose an exit, dial the upstream (one retry when policy
@@ -12,7 +13,7 @@ use crate::{http, upstream, TargetAddr};
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::io::copy_bidirectional;
+use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 /// Why a connection could not be opened, mapped to protocol replies.
@@ -171,53 +172,99 @@ impl Gateway {
     }
 
     async fn handle_http(&self, mut client: TcpStream) -> Result<(), ProtoError> {
-        let req = match http::read_connect(&mut client).await {
+        let req = match http::read_request(&mut client).await {
             Ok(r) => r,
             Err(ProtoError::Protocol(msg)) if msg.starts_with("method not supported") => {
-                http::write_response(&mut client, 501, "Only CONNECT Is Supported", &[]).await?;
+                http::write_response(&mut client, 501, "Not Implemented", &CLOSE).await?;
                 return Err(ProtoError::Protocol(msg));
             }
             Err(e) => {
-                http::write_response(&mut client, 400, "Bad Request", &[]).await?;
+                http::write_response(&mut client, 400, "Bad Request", &CLOSE).await?;
                 return Err(e);
             }
         };
-        let challenge = [("Proxy-Authenticate", "Basic realm=\"humanip\"")];
-        let Some((username, password)) = req.credentials else {
-            http::write_response(
-                &mut client,
-                407,
-                "Proxy Authentication Required",
-                &challenge,
-            )
-            .await?;
+        let (target, credentials, forward) = match req {
+            http::ProxyRequest::Connect(c) => (c.target, c.credentials, None),
+            http::ProxyRequest::Forward(f) => (f.target, f.credentials, Some((f.head, f.body))),
+        };
+        // Forwarded requests get explicit framing on gateway-made responses so
+        // clients do not wait for a body; CONNECT replies stay as before.
+        let extra: &[(&str, &str)] = if forward.is_some() { &CLOSE } else { &[] };
+        let Some((username, password)) = credentials else {
+            deny(&mut client, extra).await?;
             return Err(ProtoError::Rejected("missing credentials".into()));
         };
         let who = match authenticate(self.selector.config(), &username, &password) {
             Ok(who) => who,
             Err(e) => {
-                http::write_response(
-                    &mut client,
-                    407,
-                    "Proxy Authentication Required",
-                    &challenge,
-                )
-                .await?;
+                deny(&mut client, extra).await?;
                 return Err(ProtoError::Rejected(e.to_string()));
             }
         };
-        match self.open(&who, &req.target).await {
-            Ok((mut up, _choice)) => {
-                http::write_response(&mut client, 200, "Connection Established", &[]).await?;
-                copy_bidirectional(&mut client, &mut up).await?;
-                Ok(())
-            }
+        let mut up = match self.open(&who, &target).await {
+            Ok((up, _choice)) => up,
             Err(e) => {
                 let (code, reason) = e.http_status();
-                http::write_response(&mut client, code, reason, &[]).await?;
-                Err(ProtoError::Rejected(format!("{e:?}")))
+                http::write_response(&mut client, code, reason, extra).await?;
+                return Err(ProtoError::Rejected(format!("{e:?}")));
+            }
+        };
+        match forward {
+            None => {
+                http::write_response(&mut client, 200, "Connection Established", &[]).await?;
+                copy_bidirectional(&mut client, &mut up).await?;
+            }
+            Some((head, body)) => {
+                up.write_all(&head).await?;
+                splice_forward(&mut client, &mut up, body).await?;
             }
         }
+        Ok(())
+    }
+}
+
+/// Framing headers for responses the gateway itself makes.
+const CLOSE: [(&str, &str); 2] = [("Content-Length", "0"), ("Connection", "close")];
+
+/// 407 with a Basic challenge, plus `extra` headers.
+async fn deny(client: &mut TcpStream, extra: &[(&str, &str)]) -> io::Result<()> {
+    let mut headers = vec![("Proxy-Authenticate", "Basic realm=\"humanip\"")];
+    headers.extend_from_slice(extra);
+    http::write_response(client, 407, "Proxy Authentication Required", &headers).await
+}
+
+/// After the rewritten head: the origin's response is copied to the client
+/// until the origin closes (it was sent `Connection: close`). Client bytes go
+/// to the origin only within the declared body, so a second pipelined request
+/// (which would still carry `Proxy-Authorization`) is never forwarded.
+/// `Transfer-Encoding` bodies are spliced unparsed.
+async fn splice_forward(
+    client: &mut TcpStream,
+    up: &mut TcpStream,
+    body: http::RequestBody,
+) -> io::Result<()> {
+    let (mut cr, mut cw) = client.split();
+    let (mut ur, mut uw) = up.split();
+    let upload = async {
+        match body {
+            http::RequestBody::None => {}
+            http::RequestBody::Length(n) => {
+                tokio::io::copy(&mut (&mut cr).take(n), &mut uw).await?;
+            }
+            http::RequestBody::Streamed => {
+                tokio::io::copy(&mut cr, &mut uw).await?;
+            }
+        }
+        uw.flush().await?;
+        std::future::pending::<io::Result<()>>().await
+    };
+    let download = async {
+        tokio::io::copy(&mut ur, &mut cw).await?;
+        cw.shutdown().await
+    };
+    tokio::select! {
+        r = download => r,
+        r = upload => r,
     }
 }
 
