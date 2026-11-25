@@ -28,6 +28,9 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+#[path = "billing_routes.rs"]
+pub mod billing_routes;
+
 /// Shared application state: capabilities + registry, both cheap to clone.
 #[derive(Clone)]
 pub struct AppState {
@@ -95,7 +98,11 @@ pub fn build_app(state: AppState, settings: &ServeSettings) -> Router {
         .route("/commands/:name", post(run_command))
         .route("/probe/:target", post(run_probe))
         .route("/doctor", get(doctor))
-        .route("/config", get(get_config));
+        .route("/config", get(get_config))
+        .nest(
+            "/billing",
+            billing_routes::router(billing_routes::BillingState::from_env()),
+        );
 
     Router::new()
         .route("/healthz", get(healthz))

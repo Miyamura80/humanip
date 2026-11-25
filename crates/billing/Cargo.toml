@@ -7,3 +7,18 @@ license = "MIT"
 
 [dependencies]
 humanip-core = { path = "../humanip-core" }
+# Same feature set as the rest of the workspace; the binary installs the ring
+# rustls provider at startup.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "http2", "charset", "system-proxy"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+form_urlencoded = "1"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+axum = "0.7"
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }

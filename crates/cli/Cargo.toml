@@ -18,11 +18,14 @@ default = ["cli", "http-api"]
 cli = []
 # The axum HTTP API (`appctl serve`) and its tower middleware stack. `app-config`
 # is only read by the HTTP server, so a `cli-only` prune drops it too.
-http-api = ["dep:axum", "dep:tower", "dep:tower-http", "dep:app-config"]
+http-api = ["dep:axum", "dep:tower", "dep:tower-http", "dep:app-config", "dep:humanip-billing", "dep:humanip-core"]
 
 [dependencies]
 engine = { path = "../engine" }
 app-config = { path = "../config", optional = true }
+# Billing routes (`/api/v1/billing/*`) ride on the http-api feature.
+humanip-billing = { path = "../billing", optional = true }
+humanip-core = { path = "../humanip-core", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
