@@ -17,6 +17,11 @@ export interface ProviderOffer {
 	/** Median fraud score of the pool (IPQS / Scamalytics blend). */
 	fraudScore: number;
 	maxStickyMinutes: number;
+	/** Measured success on the quoted domain (live quotes carry this). */
+	successRate?: number;
+	latencyMs?: number;
+	/** Fields filled from the demo catalog because the live source lacks them. */
+	estimated?: string[];
 }
 
 export const OFFERS: ProviderOffer[] = [
@@ -143,9 +148,19 @@ export function eligibleOffers(
 	);
 }
 
+/** Tooltip text naming the fields a live offer borrowed from demo data. */
+export const estimateNote = (o: ProviderOffer) =>
+	o.estimated?.length
+		? `${o.provider}: ${o.estimated.join(", ")} estimated from the demo catalog`
+		: undefined;
+
+/** Success rate of an offer on a domain: measured if known, else the table. */
+export const worksFor = (o: ProviderOffer, domain: string) =>
+	o.successRate ?? successRate(domain, o.provider);
+
 /** Expected cost per *successful* GB: price adjusted for retries. */
 export const effectivePrice = (o: ProviderOffer, domain: string) =>
-	o.pricePerGb / successRate(domain, o.provider);
+	o.pricePerGb / worksFor(o, domain);
 
 export interface RouteRow {
 	id: string;

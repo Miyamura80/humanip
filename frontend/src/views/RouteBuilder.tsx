@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ReliabilityBadge } from "../components/frontier";
 import { Logo, Mark, type MarkName } from "../components/icons";
 import { OrbitalFrontier } from "../components/orbit";
+import { PolicyYaml, policyYaml } from "../components/policy-yaml";
 import { Dots, Field, Step, Tile } from "../components/tiles";
 import {
 	ExitMark,
@@ -43,6 +44,11 @@ const USE_LOGO: Record<UseCase, "claude-code" | "beeper" | "apify"> = {
 	browser: "claude-code",
 	mautrix: "beeper",
 	scrape: "apify",
+};
+const NAME: Record<UseCase, string> = {
+	browser: "agent-browser-us",
+	mautrix: "mautrix-whatsapp-eu",
+	scrape: "price-scrape",
 };
 const TARGET: Record<UseCase, string> = {
 	browser: "linkedin.com",
@@ -346,7 +352,7 @@ export function RouteBuilder() {
 					<details className="dig glass step">
 						<summary>Name, target URL, spend cap, webhook, overrides</summary>
 						<div className="dig-body grid-2">
-							<Field id="n" label="Name" v="mautrix-whatsapp-eu" />
+							<Field id="n" label="Name" v={NAME[use]} />
 							<Field id="u" label="Target URL" v={`https://${domain}`} />
 							<Field id="c" label="Monthly cap" v="$25.00" />
 							<Field
@@ -427,16 +433,18 @@ export function RouteBuilder() {
 							</button>
 						</div>
 					</LiquidMetal>
-					<details className="dig glass step">
-						<summary>Policy as YAML</summary>
-						<pre className="code dig-body">{`route: mautrix-whatsapp-eu
-mode: ${mode}
-${mode === "sticky" ? `sticky: { ttl: ${ttl}, on_pin_loss: ${loss} }\n` : ""}exit_types: [${exits.join(", ")}]
-geo: { country: DE, city: Berlin, asn: 3320,
-       match_account: true }
-risk: ${risk}
-reliability_floor: ${floor}`}</pre>
-					</details>
+					<PolicyYaml
+						yaml={policyYaml({
+							name: NAME[use],
+							mode,
+							ttl,
+							loss,
+							exits,
+							risk,
+							floor,
+							targetUrl: `https://${domain}`,
+						})}
+					/>
 				</aside>
 			</div>
 		</>

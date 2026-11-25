@@ -3,7 +3,7 @@
 // GB (further round the dial costs more). The glowing arc is the Pareto
 // frontier; the pick carries a live orb.
 
-import type { ProviderOffer } from "../lib/mock";
+import { estimateNote, type ProviderOffer } from "../lib/mock";
 import { axis, costReliabilityFrontier } from "../lib/pareto";
 import ThinkingOrb from "../vendor/ThinkingOrb";
 import { Mark } from "./icons";
@@ -121,6 +121,7 @@ export function OrbitalFrontier({
 							onClick={() => !out && onPick?.(o)}
 							onKeyDown={(e) => e.key === "Enter" && !out && onPick?.(o)}
 						>
+							{estimateNote(o) && <title>{estimateNote(o)}</title>}
 							<circle cx={p.x} cy={p.y} r={14} className="hit" />
 							{o === auto && o !== pick && (
 								<circle cx={p.x} cy={p.y} r={11} className="orbit-auto" />

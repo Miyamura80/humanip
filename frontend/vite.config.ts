@@ -12,6 +12,11 @@ import { defineConfig } from "vite";
 
 // @ts-expect-error process is a nodejs global
 const apiProxyTarget = process.env.VITE_API_PROXY || "http://127.0.0.1:8080";
+// The gateway admin API (`/admin/v1/status`, `/admin/v1/usage`). The bearer
+// token comes from `VITE_ADMIN_TOKEN` or the console's settings popover.
+// @ts-expect-error process is a nodejs global
+const adminProxyTarget =
+	process.env.VITE_ADMIN_PROXY || "http://127.0.0.1:9090";
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -24,6 +29,7 @@ export default defineConfig({
 		proxy: {
 			"/api": { target: apiProxyTarget, changeOrigin: true },
 			"/healthz": { target: apiProxyTarget, changeOrigin: true },
+			"/admin": { target: adminProxyTarget, changeOrigin: true },
 		},
 	},
 });

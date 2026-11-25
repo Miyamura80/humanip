@@ -5,7 +5,7 @@ import {
 	effectivePrice,
 	LATENCY_MS,
 	type ProviderOffer,
-	successRate,
+	worksFor,
 } from "./mock";
 import { withTake } from "./policy";
 
@@ -23,7 +23,7 @@ export const AXES: Axis[] = [
 		key: "success",
 		label: "works",
 		better: "high",
-		get: (o, d) => successRate(d, o.provider),
+		get: (o, d) => worksFor(o, d),
 		fmt: (n) => `${Math.round(n * 100)}%`,
 	},
 	{
@@ -55,7 +55,7 @@ export const AXES: Axis[] = [
 		key: "latency",
 		label: "latency",
 		better: "low",
-		get: (o) => LATENCY_MS[o.provider] ?? 999,
+		get: (o) => o.latencyMs ?? LATENCY_MS[o.provider] ?? 999,
 		fmt: (n) => `${Math.round(n)}ms`,
 	},
 ];
@@ -118,7 +118,6 @@ export function defaultPick(
 ): ProviderOffer | undefined {
 	const front = costReliabilityFrontier(offers, domain);
 	return (
-		front.find((o) => successRate(domain, o.provider) >= floor) ??
-		front[front.length - 1]
+		front.find((o) => worksFor(o, domain) >= floor) ?? front[front.length - 1]
 	);
 }

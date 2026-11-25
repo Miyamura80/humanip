@@ -1,4 +1,8 @@
 import { useMemo, useState } from "react";
+import { quote } from "../api/client";
+import { hostOf, offersFromQuote } from "../api/join";
+import { useLive } from "../api/live";
+import type { QuoteOutput } from "../api/types";
 import {
 	FrontierPlot,
 	FrontierWalk,
@@ -10,9 +14,10 @@ import { OrbitalFrontier } from "../components/orbit";
 import { ExitMark, Ring } from "../components/visual";
 import {
 	eligibleOffers,
+	estimateNote,
 	OFFERS,
 	type ProviderOffer,
-	successRate,
+	worksFor,
 } from "../lib/mock";
 import { axis, defaultPick, RELIABILITY_FLOOR } from "../lib/pareto";
 import {
@@ -23,16 +28,6 @@ import {
 	withTake,
 } from "../lib/policy";
 import LiquidMetal from "../vendor/LiquidMetal";
-
-const domainOf = (url: string) => {
-	try {
-		return new URL(
-			url.includes("://") ? url : `https://${url}`,
-		).hostname.replace(/^www\./, "");
-	} catch {
-		return url;
-	}
-};
 
 // Reliability first unless changed under Advanced.
 const DEFAULT_RISK = 20;
@@ -48,11 +43,23 @@ export function PriceLookup() {
 	const [url, setUrl] = useState("https://www.linkedin.com/in/");
 	const [risk, setRisk] = useState(DEFAULT_RISK);
 	const [floor, setFloor] = useState(RELIABILITY_FLOOR);
-	const [manual, setManual] = useState<ProviderOffer>();
-	const domain = domainOf(url);
+	const [manual, setManual] = useState<string>();
+	const onPick = (o: ProviderOffer) => setManual(o.provider);
+	const host = hostOf(url);
+	const q = useLive<QuoteOutput | null>(
+		"appctl quote",
+		() => quote({ url, risk, reliability_floor: floor, sticky_minutes: 0 }),
+		null,
+		`${host}|${risk}|${floor}`,
+	);
+	const live = useMemo(
+		() => (q.data ? offersFromQuote(q.data) : null),
+		[q.data],
+	);
+	const domain = q.data?.domain ?? host;
 
 	// A lookup has no pin requirement, so the dial's sticky guarantee is waived.
-	const eligible = useMemo(
+	const demoEligible = useMemo(
 		() =>
 			new Set(
 				eligibleOffers(
@@ -64,15 +71,22 @@ export function PriceLookup() {
 			),
 		[risk],
 	);
-	const pool = useMemo(() => OFFERS.filter((o) => eligible.has(o)), [eligible]);
-	const auto = useMemo(
+	const offers = live?.offers ?? OFFERS;
+	const eligible = live?.eligible ?? demoEligible;
+	const pool = useMemo(
+		() => offers.filter((o) => eligible.has(o)),
+		[offers, eligible],
+	);
+	const demoAuto = useMemo(
 		() => defaultPick(pool, domain, floor),
 		[pool, domain, floor],
 	);
-	const pick = manual && eligible.has(manual) ? manual : auto;
+	// Live: the server's pick is authoritative.
+	const auto = live ? live.pick : demoAuto;
+	const pick = pool.find((o) => o.provider === manual) ?? auto;
 	const edited = risk !== DEFAULT_RISK || floor !== RELIABILITY_FLOOR;
 	const cost = axis("cost");
-	const works = pick ? successRate(domain, pick.provider) : undefined;
+	const works = pick ? worksFor(pick, domain) : undefined;
 
 	return (
 		<>
@@ -133,13 +147,13 @@ export function PriceLookup() {
 
 			<div className="hero">
 				<OrbitalFrontier
-					offers={OFFERS}
+					offers={offers}
 					domain={domain}
 					eligible={eligible}
 					pick={pick}
 					auto={auto}
 					floor={floor}
-					onPick={setManual}
+					onPick={onPick}
 				/>
 				<div className="hero-side">
 					<div className="eyebrow">
@@ -181,6 +195,18 @@ export function PriceLookup() {
 									List {usd(withTake(pick.pricePerGb))}/GB incl. 5% fee, divided
 									by success rate.
 								</div>
+								<div
+									className="faint"
+									title={
+										live
+											? estimateNote(pick)
+											: "appctl serve is offline; numbers come from the demo catalog"
+									}
+								>
+									{live
+										? `Live quote from appctl${q.data?.meets_floor === false ? ", nothing clears the floor" : ""}. Latency and max pin estimated.`
+										: "Demo catalog. Start appctl serve for a live quote."}
+								</div>
 								<div className="row" style={{ gap: 10 }}>
 									<button type="button" className="btn btn-primary wide">
 										Create route
@@ -220,7 +246,7 @@ export function PriceLookup() {
 					domain={domain}
 					pick={pick}
 					auto={auto}
-					onPick={setManual}
+					onPick={onPick}
 				/>
 			</section>
 
@@ -233,11 +259,11 @@ export function PriceLookup() {
 					</span>
 				</div>
 				<ParallelAxes
-					offers={OFFERS}
+					offers={offers}
 					domain={domain}
 					eligible={eligible}
 					pick={pick}
-					onPick={setManual}
+					onPick={onPick}
 				/>
 			</section>
 
@@ -248,12 +274,12 @@ export function PriceLookup() {
 							small
 							x={axis(m.x)}
 							y={axis(m.y)}
-							offers={OFFERS}
+							offers={offers}
 							domain={domain}
 							eligible={eligible}
 							pick={pick}
 							auto={auto}
-							onPick={setManual}
+							onPick={onPick}
 						/>
 					</div>
 				))}

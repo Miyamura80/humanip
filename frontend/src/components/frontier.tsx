@@ -2,7 +2,7 @@
 // y-axis, left = better on the x-axis, so the frontier hugs the top-left and
 // everything it dominates sits in the shaded area below-right.
 
-import { type ProviderOffer, successRate } from "../lib/mock";
+import { estimateNote, type ProviderOffer, worksFor } from "../lib/mock";
 import {
 	AXES,
 	type Axis,
@@ -350,6 +350,7 @@ export function ParallelAxes({
 						style={{ cursor: "pointer" }}
 						opacity={out ? 0.15 : 1}
 					>
+						{estimateNote(o) && <title>{estimateNote(o)}</title>}
 						<polyline
 							points={pts.join(" ")}
 							fill="none"
@@ -412,7 +413,7 @@ export function FrontierWalk({
 						<b>{o.provider}</b>
 						<span className="walk-price">{cost.fmt(cost.get(o, domain))}</span>
 						<span className="walk-works">
-							{Math.round(successRate(domain, o.provider) * 100)}% works
+							{Math.round(worksFor(o, domain) * 100)}% works
 						</span>
 					</button>
 				</span>

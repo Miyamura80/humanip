@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import "./styles/app.css";
 import "./styles/systems.css";
+import "./styles/live.css";
 import { Mark } from "./components/icons";
+import { LivePill, SettingsPopover } from "./components/livepill";
 import { ACCOUNT } from "./lib/mock";
 import { usd } from "./lib/policy";
 import { Dashboard } from "./views/Dashboard";
@@ -55,6 +57,8 @@ function App() {
 						</a>
 					))}
 				</nav>
+				<LivePill />
+				<SettingsPopover />
 				<div className="balance-pill">
 					<span className="muted">Balance</span>
 					<b>{usd(ACCOUNT.balance)}</b>

@@ -1,0 +1,71 @@
+/* Live-data affordances: source pill, settings popover, provider strip and
+   the route validator output. */
+
+.source-pill {
+	cursor: help;
+}
+.source-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--text-3);
+}
+.source-dot.on {
+	background: currentColor;
+	box-shadow: 0 0 8px currentColor;
+}
+.settings {
+	position: relative;
+}
+.btn-icon {
+	width: 32px;
+	padding: 0;
+	color: var(--text-2);
+}
+.settings-pop {
+	position: absolute;
+	right: 0;
+	top: calc(100% + 12px);
+	width: 300px;
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	z-index: 20;
+	background: rgba(12, 16, 17, 0.96);
+}
+.settings-pop p {
+	margin: 0;
+	font-size: 12px;
+}
+.provider-strip {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-bottom: 24px;
+}
+.provider-chip {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 14px;
+	border-radius: 999px;
+	font-size: 13px;
+}
+.provider-chip b {
+	font-weight: 500;
+}
+.validate-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-top: 12px;
+}
+.validate-out {
+	margin-top: 10px;
+	font-size: 13px;
+}
+.validate-out.bad {
+	color: var(--bad);
+	white-space: pre-wrap;
+}
