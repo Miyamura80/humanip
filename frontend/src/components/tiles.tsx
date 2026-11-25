@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+
+/** A numbered builder step on a glass panel. */
 export function Step({
 	n,
 	title,
@@ -5,68 +8,65 @@ export function Step({
 }: {
 	n: number;
 	title: string;
-	children: React.ReactNode;
+	children: ReactNode;
 }) {
 	return (
-		<div className="card card-pad">
-			<div className="row" style={{ marginBottom: 12, gap: 8 }}>
-				<span className="brand-mark" style={{ width: 20, height: 20 }}>
-					{n}
-				</span>
-				<b>{title}</b>
+		<section className="glass step">
+			<div className="step-head">
+				<span className="step-n">{String(n).padStart(2, "0")}</span>
+				<h2>{title}</h2>
 			</div>
 			{children}
-		</div>
+		</section>
 	);
 }
 
+/** A large pickable choice with an illustration slot. */
 export function Tile({
 	on,
 	icon,
 	cap,
-	small,
+	sub,
 	onClick,
-	children,
 }: {
 	on: boolean;
-	icon: string;
+	icon: ReactNode;
 	cap: string;
-	small?: boolean;
+	sub?: ReactNode;
 	onClick: () => void;
-	children?: React.ReactNode;
 }) {
 	return (
 		<button
 			type="button"
 			className={`tile${on ? " on" : ""}`}
 			onClick={onClick}
-			style={small ? { padding: "10px 4px" } : undefined}
+			aria-pressed={on}
 		>
-			<span className="big-icon" style={small ? { fontSize: 20 } : undefined}>
-				{icon}
-			</span>
+			<span className="tile-art">{icon}</span>
 			<span className="tile-cap">{cap}</span>
-			{children}
+			{sub && <span className="tile-sub">{sub}</span>}
 		</button>
 	);
 }
 
+const DOT_KEYS = ["d0", "d1", "d2", "d3", "d4"];
+
+/** Five dots: one colour for sticky, many for rotating. */
 export function Dots({ colors }: { colors: string[] }) {
 	return (
 		<span className="ip-dots" aria-hidden="true">
-			{colors.map((c, i) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: static illustration
-				<i key={i} style={{ background: c }} />
+			{DOT_KEYS.map((k, i) => (
+				<i
+					key={k}
+					style={{
+						background: colors[i % colors.length],
+						boxShadow: `0 0 6px ${colors[i % colors.length]}`,
+					}}
+				/>
 			))}
 		</span>
 	);
 }
-
-export const Label = ({ children }: { children: React.ReactNode }) => (
-	<div className="field-label" style={{ margin: "14px 0 8px" }}>
-		{children}
-	</div>
-);
 
 export function Field({
 	id,

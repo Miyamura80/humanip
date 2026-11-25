@@ -11,7 +11,6 @@ import { withTake } from "./policy";
 
 export interface Axis {
 	key: "cost" | "success" | "fraud" | "sticky" | "latency";
-	icon: string;
 	label: string;
 	/** Which direction is better. */
 	better: "low" | "high";
@@ -22,7 +21,6 @@ export interface Axis {
 export const AXES: Axis[] = [
 	{
 		key: "success",
-		icon: "✅",
 		label: "works",
 		better: "high",
 		get: (o, d) => successRate(d, o.provider),
@@ -30,7 +28,6 @@ export const AXES: Axis[] = [
 	},
 	{
 		key: "cost",
-		icon: "💸",
 		label: "$/working GB",
 		better: "low",
 		get: (o, d) => withTake(effectivePrice(o, d)),
@@ -38,7 +35,6 @@ export const AXES: Axis[] = [
 	},
 	{
 		key: "fraud",
-		icon: "🛡️",
 		label: "fraud",
 		better: "low",
 		get: (o) => o.fraudScore,
@@ -46,7 +42,6 @@ export const AXES: Axis[] = [
 	},
 	{
 		key: "sticky",
-		icon: "📌",
 		label: "max pin",
 		better: "high",
 		// log scale so 10m, 1d and 90d spread out evenly
@@ -58,7 +53,6 @@ export const AXES: Axis[] = [
 	},
 	{
 		key: "latency",
-		icon: "⚡",
 		label: "latency",
 		better: "low",
 		get: (o) => LATENCY_MS[o.provider] ?? 999,

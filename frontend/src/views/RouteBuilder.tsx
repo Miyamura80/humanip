@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
-import { FrontierPlot, ReliabilityBadge } from "../components/frontier";
-import { Dots, Field, Label, Step, Tile } from "../components/tiles";
+import { ReliabilityBadge } from "../components/frontier";
+import { Logo, Mark, type MarkName } from "../components/icons";
+import { OrbitalFrontier } from "../components/orbit";
+import { Dots, Field, Step, Tile } from "../components/tiles";
 import {
-	EXIT_ICON,
+	ExitMark,
 	Flow,
 	Gauge,
-	MODE_ICON,
 	Pips,
-	USE_ICON,
+	USE_LABEL,
+	type UseCase,
 } from "../components/visual";
 import {
 	eligibleOffers,
@@ -27,86 +29,64 @@ import {
 	usd,
 	withTake,
 } from "../lib/policy";
-
-type UseCase = keyof typeof USE_ICON;
+import LiquidMetal from "../vendor/LiquidMetal";
 
 const PRESET: Record<
 	UseCase,
-	{ mode: RouteMode; ttl: string; exits: ExitType[]; risk: number; gb: number }
+	{ mode: RouteMode; ttl: string; exits: ExitType[]; gb: number }
 > = {
-	browser: {
-		mode: "sticky",
-		ttl: "session",
-		exits: ["residential"],
-		risk: 20,
-		gb: 20,
-	},
-	mautrix: {
-		mode: "sticky",
-		ttl: "forever",
-		exits: ["mobile", "isp"],
-		risk: 20,
-		gb: 1,
-	},
-	scrape: {
-		mode: "rotating",
-		ttl: "session",
-		exits: ["residential"],
-		risk: 20,
-		gb: 200,
-	},
+	browser: { mode: "sticky", ttl: "session", exits: ["residential"], gb: 20 },
+	mautrix: { mode: "sticky", ttl: "forever", exits: ["mobile", "isp"], gb: 1 },
+	scrape: { mode: "rotating", ttl: "session", exits: ["residential"], gb: 200 },
 };
-const USE_CAP: Record<UseCase, string> = {
-	browser: "Browser agent",
-	mautrix: "Bridge",
-	scrape: "Scraper",
+const USE_LOGO: Record<UseCase, "claude-code" | "beeper" | "apify"> = {
+	browser: "claude-code",
+	mautrix: "beeper",
+	scrape: "apify",
 };
-
-const TTL: { v: string; icon: string; cap: string; min: number }[] = [
-	{ v: "session", icon: "⏳", cap: "session", min: 30 },
-	{ v: "24h", icon: "🌙", cap: "1 day", min: 24 * 60 },
-	{ v: "30d", icon: "📅", cap: "30 days", min: 30 * 24 * 60 },
-	{ v: "forever", icon: "♾️", cap: "forever", min: 90 * 24 * 60 },
-];
-const LOSS: { v: PinLoss; icon: string; cap: string }[] = [
-	{ v: "fail_closed", icon: "🛑", cap: "stop + alert" },
-	{ v: "same_asn", icon: "🏢", cap: "same ASN" },
-	{ v: "same_city", icon: "🏙️", cap: "same city" },
-	{ v: "same_country", icon: "🏳️", cap: "same country" },
-	{ v: "any", icon: "🎲", cap: "anything" },
-];
 const TARGET: Record<UseCase, string> = {
 	browser: "linkedin.com",
 	mautrix: "web.whatsapp.com",
 	scrape: "amazon.com",
 };
-const DEFAULT_RISK = 20;
 
+const TTL = [
+	{ v: "session", big: "30m", cap: "per session", min: 30 },
+	{ v: "24h", big: "1d", cap: "one day", min: 24 * 60 },
+	{ v: "30d", big: "30d", cap: "thirty days", min: 30 * 24 * 60 },
+	{ v: "forever", big: "∞", cap: "hard pin", min: 90 * 24 * 60 },
+];
+const LOSS: { v: PinLoss; mark: MarkName; cap: string }[] = [
+	{ v: "fail_closed", mark: "shield-x", cap: "Stop and alert" },
+	{ v: "same_asn", mark: "exit-isp", cap: "Same ASN" },
+	{ v: "same_city", mark: "exit-residential", cap: "Same city" },
+	{ v: "same_country", mark: "shield", cap: "Same country" },
+	{ v: "any", mark: "shield-off", cap: "Anything" },
+];
 const EXIT_COST: Record<ExitType, number> = {
 	mobile: 3,
 	isp: 2,
 	residential: 1,
 };
+const DEFAULT_RISK = 20;
 
 export function RouteBuilder() {
 	const [use, setUse] = useState<UseCase>("mautrix");
-	const p = PRESET[use];
-	const [mode, setMode] = useState<RouteMode>(p.mode);
-	const [ttl, setTtl] = useState(p.ttl);
+	const [mode, setMode] = useState<RouteMode>(PRESET.mautrix.mode);
+	const [ttl, setTtl] = useState(PRESET.mautrix.ttl);
 	const [loss, setLoss] = useState<PinLoss>("fail_closed");
-	const [exits, setExits] = useState<ExitType[]>(p.exits);
-	const [risk, setRisk] = useState(p.risk);
-	const [gb, setGb] = useState(p.gb);
+	const [exits, setExits] = useState<ExitType[]>(PRESET.mautrix.exits);
+	const [risk, setRisk] = useState(DEFAULT_RISK);
+	const [gb, setGb] = useState(PRESET.mautrix.gb);
 	const [floor, setFloor] = useState(RELIABILITY_FLOOR);
 	const [manual, setManual] = useState<ProviderOffer>();
 
-	const pick = (u: UseCase) => {
+	const choose = (u: UseCase) => {
 		const n = PRESET[u];
 		setUse(u);
 		setMode(n.mode);
 		setTtl(n.ttl);
 		setExits(n.exits);
-		setRisk(n.risk);
 		setGb(n.gb);
 		setManual(undefined);
 	};
@@ -117,8 +97,8 @@ export function RouteBuilder() {
 
 	const stickyMin =
 		mode === "sticky" ? (TTL.find((t) => t.v === ttl)?.min ?? 0) : 0;
-	// The pin length the route needs is the sticky requirement; the risk
-	// dial only tunes fraud, exit downgrade and sourcing.
+	// The route's own pin length is the sticky requirement; the dial only
+	// tunes fraud, exit downgrade and sourcing.
 	const resolved = useMemo(
 		() => resolveRisk(risk, exits, { minStickyMinutes: stickyMin }),
 		[risk, exits, stickyMin],
@@ -135,33 +115,30 @@ export function RouteBuilder() {
 	);
 	const best = manual && eligible.has(manual) ? manual : auto;
 	const edited = risk !== DEFAULT_RISK || floor !== RELIABILITY_FLOOR;
+	const works = best ? successRate(domain, best.provider) : undefined;
 
-	// 0-4 pips per risk dimension: more pips = more risk taken.
-	const dims = [
+	const dims: { mark: MarkName; k: string; v: string; n: number }[] = [
 		{
-			icon: "🛡️",
-			k: "fraud ≤",
+			mark: "shield",
+			k: "Fraud score at most",
 			v: String(resolved.maxFraudScore),
 			n: Math.round(((resolved.maxFraudScore - 15) / 60) * 4),
 		},
 		{
-			icon: "⬇️",
-			k: "exits",
-			v: resolved.allowedExitTypes.map((e) => EXIT_ICON[e]).join(""),
+			mark: "exit-residential",
+			k: "Exit classes",
+			v: resolved.allowedExitTypes.map((e) => EXIT_LABEL[e]).join(", "),
 			n: resolved.allowedExitTypes.length - exits.length + 1,
 		},
 		{
-			icon: "🏷️",
-			k: "sourcing",
-			v:
-				resolved.sourcingTiers.length === 1
-					? "verified"
-					: `${resolved.sourcingTiers.length} tiers`,
+			mark: "shield-user",
+			k: "Provider sourcing",
+			v: resolved.sourcingTiers.join(", "),
 			n: resolved.sourcingTiers.length,
 		},
 		{
-			icon: "⏱️",
-			k: "sticky ≥",
+			mark: "tunnel",
+			k: "Pin guarantee",
 			v: formatSticky(resolved.minStickyMinutes),
 			n:
 				resolved.minStickyMinutes >= 1440
@@ -175,159 +152,149 @@ export function RouteBuilder() {
 	return (
 		<>
 			<div className="page-head">
-				<h1>➕ New route</h1>
+				<div>
+					<div className="eyebrow">New route</div>
+					<h1>Shape where a client exits.</h1>
+				</div>
 			</div>
 			<div className="builder">
 				<div className="stack">
 					<Step n={1} title="Who connects?">
-						<div
-							className="tiles"
-							style={{ gridTemplateColumns: "repeat(3, 1fr)" }}
-						>
-							{(Object.keys(USE_ICON) as UseCase[]).map((u) => (
+						<div className="tiles cols-3">
+							{(Object.keys(PRESET) as UseCase[]).map((u) => (
 								<Tile
 									key={u}
 									on={use === u}
-									icon={USE_ICON[u]}
-									cap={USE_CAP[u]}
-									onClick={() => pick(u)}
+									icon={
+										<Logo name={USE_LOGO[u]} size={34} label={USE_LABEL[u]} />
+									}
+									cap={USE_LABEL[u]}
+									onClick={() => choose(u)}
 								/>
 							))}
 						</div>
 					</Step>
 
-					<Step n={2} title="Same IP or fresh IPs?">
-						<div className="tiles" style={{ gridTemplateColumns: "1fr 1fr" }}>
+					<Step n={2} title="Same IP, or fresh ones?">
+						<div className="tiles cols-2">
 							<Tile
 								on={mode === "sticky"}
-								icon={MODE_ICON.sticky}
+								icon={<Dots colors={["#7fdfff"]} />}
 								cap="Sticky"
+								sub="one exit, held"
 								onClick={() => setMode("sticky")}
-							>
-								<Dots
-									colors={[
-										"var(--accent)",
-										"var(--accent)",
-										"var(--accent)",
-										"var(--accent)",
-										"var(--accent)",
-									]}
-								/>
-							</Tile>
+							/>
 							<Tile
 								on={mode === "rotating"}
-								icon={MODE_ICON.rotating}
+								icon={
+									<Dots
+										colors={[
+											"#7fdfff",
+											"#c9b8ff",
+											"#8af0c8",
+											"#ffd479",
+											"#ff7a85",
+										]}
+									/>
+								}
 								cap="Rotating"
+								sub="new exit each time"
 								onClick={() => setMode("rotating")}
-							>
-								<Dots
-									colors={[
-										"var(--accent)",
-										"var(--isp)",
-										"var(--mobile)",
-										"var(--warn)",
-										"var(--bad)",
-									]}
-								/>
-							</Tile>
+							/>
 						</div>
 						{mode === "sticky" && (
 							<>
-								<Label>⏱️ hold for</Label>
-								<div
-									className="tiles"
-									style={{ gridTemplateColumns: "repeat(4, 1fr)" }}
-								>
+								<div className="sub-label">Hold it for</div>
+								<div className="tiles cols-4">
 									{TTL.map((t) => (
 										<Tile
 											key={t.v}
-											small
 											on={ttl === t.v}
-											icon={t.icon}
+											icon={<span className="num-m">{t.big}</span>}
 											cap={t.cap}
 											onClick={() => setTtl(t.v)}
 										/>
 									))}
 								</div>
-								<Label>💥 if the IP dies</Label>
-								<div
-									className="tiles"
-									style={{ gridTemplateColumns: "repeat(5, 1fr)" }}
-								>
+								<div className="sub-label">If the IP dies</div>
+								<div className="chips">
 									{LOSS.map((l) => (
-										<Tile
+										<button
+											type="button"
 											key={l.v}
-											small
-											on={loss === l.v}
-											icon={l.icon}
-											cap={l.cap}
+											className={`chip${loss === l.v ? " on" : ""}`}
 											onClick={() => setLoss(l.v)}
-										/>
+											aria-pressed={loss === l.v}
+										>
+											<Mark name={l.mark} size={14} />
+											{l.cap}
+										</button>
 									))}
 								</div>
 							</>
 						)}
 					</Step>
 
-					<Step n={3} title="Exit type & place">
-						<div
-							className="tiles"
-							style={{ gridTemplateColumns: "repeat(3, 1fr)" }}
-						>
-							{(Object.keys(EXIT_ICON) as ExitType[]).map((e) => (
+					<Step n={3} title="Exit type and place">
+						<div className="tiles cols-3">
+							{(Object.keys(EXIT_COST) as ExitType[]).map((e) => (
 								<Tile
 									key={e}
 									on={exits.includes(e)}
-									icon={EXIT_ICON[e]}
+									icon={<ExitMark type={e} size={30} />}
 									cap={EXIT_LABEL[e]}
-									onClick={() => toggle(e)}
-								>
-									<span className="mono" style={{ color: "var(--warn)" }}>
-										{"$".repeat(EXIT_COST[e])}
-										<span className="faint">
-											{"$".repeat(3 - EXIT_COST[e])}
+									sub={
+										<span className="price-level">
+											{"$".repeat(EXIT_COST[e])}
+											<span className="faint">
+												{"$".repeat(3 - EXIT_COST[e])}
+											</span>
 										</span>
-									</span>
-								</Tile>
+									}
+									onClick={() => toggle(e)}
+								/>
 							))}
 						</div>
-						<div className="row" style={{ marginTop: 12, flexWrap: "wrap" }}>
-							<span className="chip on">🇩🇪 Berlin</span>
-							<span className="chip on">🏢 AS3320</span>
-							<span className="chip on">📞 match +49</span>
-							<span className="chip">＋ geo</span>
+						<div className="chips" style={{ marginTop: 14 }}>
+							<span className="chip on">DE · Berlin</span>
+							<span className="chip on">AS3320 Telekom</span>
+							<span className="chip on">Match account +49</span>
+							<span className="chip">Add constraint</span>
 						</div>
 					</Step>
 
 					<Step n={4} title="How reliable?">
-						<div className="row" style={{ gap: 8, marginBottom: 6 }}>
+						<div className="row spread" style={{ marginBottom: 6 }}>
 							<ReliabilityBadge
 								edited={edited}
 								risk={risk}
 								floor={floor}
-								achieved={best ? successRate(domain, best.provider) : undefined}
+								achieved={works}
 							/>
-							<span className="faint" style={{ marginLeft: "auto" }}>
-								🎯 {domain} · tap a point to override
-							</span>
+							<span className="faint">{domain} · tap an exit to override</span>
 						</div>
-						<FrontierPlot
-							x={axis("cost")}
-							y={axis("success")}
-							offers={OFFERS}
-							domain={domain}
-							eligible={eligible}
-							pick={best}
-							auto={auto}
-							floor={floor}
-							onPick={setManual}
-						/>
-						<details className="dig" style={{ marginTop: 10 }}>
-							<summary>⚙️ Advanced: reliability floor · 🛡️ risk dial</summary>
-							<div className="dig-body">
+						<div className="orbit-wrap">
+							<OrbitalFrontier
+								offers={OFFERS}
+								domain={domain}
+								eligible={eligible}
+								pick={best}
+								auto={auto}
+								floor={floor}
+								onPick={setManual}
+								size={460}
+							/>
+						</div>
+						<p className="caption">
+							Closer to the centre works more often. Further round the dial
+							costs more. The bright arc is the frontier.
+						</p>
+						<details className="dig">
+							<summary>Advanced: reliability floor and risk dial</summary>
+							<div className="dig-body advanced">
 								<div className="field">
 									<span className="field-label">
-										🎯 reliability floor · {Math.round(floor * 100)}%
+										Reliability floor · {Math.round(floor * 100)}%
 									</span>
 									<input
 										type="range"
@@ -338,12 +305,10 @@ export function RouteBuilder() {
 										onChange={(e) => setFloor(Number(e.target.value) / 100)}
 									/>
 								</div>
-								<div className="row" style={{ gap: 24, alignItems: "center" }}>
+								<div className="row" style={{ gap: 28, alignItems: "center" }}>
 									<div style={{ width: 220, textAlign: "center" }}>
 										<Gauge value={risk} />
-										<div className="faint">
-											{risk} · {riskLabel(risk)}
-										</div>
+										<div className="faint">{riskLabel(risk)}</div>
 										<input
 											type="range"
 											min={0}
@@ -354,17 +319,12 @@ export function RouteBuilder() {
 											onChange={(e) => setRisk(Number(e.target.value))}
 										/>
 									</div>
-									<div style={{ flex: 1 }}>
+									<div className="dims">
 										{dims.map((d) => (
-											<div
-												key={d.k}
-												className="kv"
-												style={{ alignItems: "center" }}
-											>
-												<span>
-													{d.icon} <span className="muted">{d.k}</span>{" "}
-													<b>{d.v}</b>
-												</span>
+											<div key={d.k} className="dim">
+												<Mark name={d.mark} size={16} />
+												<span className="muted">{d.k}</span>
+												<b>{d.v}</b>
 												<Pips
 													n={Math.max(0, Math.min(4, d.n))}
 													color={
@@ -383,32 +343,26 @@ export function RouteBuilder() {
 						</details>
 					</Step>
 
-					<details className="dig card card-pad">
-						<summary>
-							⚙️ name · target URL · 💸 cap · 🔔 webhook · overrides
-						</summary>
+					<details className="dig glass step">
+						<summary>Name, target URL, spend cap, webhook, overrides</summary>
 						<div className="dig-body grid-2">
-							<Field id="n" label="name" v="mautrix-whatsapp-eu" />
-							<Field
-								id="u"
-								label="🎯 target URL"
-								v="https://web.whatsapp.com"
-							/>
-							<Field id="c" label="💸 monthly cap" v="$25.00" />
+							<Field id="n" label="Name" v="mautrix-whatsapp-eu" />
+							<Field id="u" label="Target URL" v={`https://${domain}`} />
+							<Field id="c" label="Monthly cap" v="$25.00" />
 							<Field
 								id="w"
-								label="🔔 webhook"
+								label="Webhook"
 								v="https://ops.bridge.example/hooks"
 							/>
 							<Field
 								id="f"
-								label="🛡️ max_fraud_score"
+								label="max_fraud_score"
 								v=""
 								ph={String(resolved.maxFraudScore)}
 							/>
 							<Field
 								id="s"
-								label="⏱️ min_sticky"
+								label="min_sticky"
 								v=""
 								ph={formatSticky(resolved.minStickyMinutes)}
 							/>
@@ -416,57 +370,65 @@ export function RouteBuilder() {
 					</details>
 				</div>
 
-				<div className="sticky-col stack">
-					<div className="card card-pad" style={{ textAlign: "center" }}>
-						<div className="big-cost">
-							{usd(best ? withTake(best.pricePerGb * gb) : 0)}
-						</div>
-						<div className="muted">
-							/ mo ·{" "}
-							<input
-								className="input mono"
-								style={{
-									width: 52,
-									height: 24,
-									display: "inline",
-									padding: "0 6px",
-								}}
-								value={gb}
-								aria-label="GB per month"
-								onChange={(e) => setGb(Number(e.target.value) || 0)}
-							/>{" "}
-							GB
-						</div>
-						<div style={{ margin: "18px 0 6px" }}>
+				<aside className="sticky-col stack">
+					<div className="eyebrow">Estimate</div>
+					<LiquidMetal
+						preset="chromatic"
+						theme="dark"
+						radius={24}
+						ringWidth={2}
+					>
+						<div className="estimate">
+							<div className="num-xl">
+								{usd(best ? withTake(best.pricePerGb * gb) : 0)}
+							</div>
+							<div className="muted">
+								per month at{" "}
+								<input
+									className="input inline mono"
+									value={gb}
+									aria-label="GB per month"
+									onChange={(e) => setGb(Number(e.target.value) || 0)}
+								/>{" "}
+								GB
+							</div>
 							<Flow
-								from={USE_ICON[use]}
+								use={use}
 								exit={best?.exitType ?? exits[0]}
-								ip={best?.provider ?? "no match"}
+								target={domain.split(".")[0]}
 								mode={mode}
+								caption={best?.provider ?? "no match"}
 							/>
+							<div className="est-stats">
+								<div>
+									<b>
+										{works !== undefined ? `${Math.round(works * 100)}%` : "-"}
+									</b>
+									<span>works</span>
+								</div>
+								<div>
+									<b>{best?.fraudScore ?? "-"}</b>
+									<span>fraud</span>
+								</div>
+								<div>
+									<b>
+										{offers.length}/{OFFERS.length}
+									</b>
+									<span>eligible</span>
+								</div>
+							</div>
+							<div className="faint">
+								{best
+									? `${usd(best.pricePerGb)}/GB + 5% fee · ${axis("cost").fmt(axis("cost").get(best, domain))} per working GB`
+									: "Loosen the risk dial or exit types"}
+							</div>
+							<button type="button" className="btn btn-primary wide">
+								Create route
+							</button>
 						</div>
-						<div
-							className="row"
-							style={{
-								justifyContent: "center",
-								gap: 16,
-								margin: "6px 0 14px",
-							}}
-						>
-							<span title="providers that fit">🧮 {offers.length}/9</span>
-							<span title="pool fraud">🛡️ {best?.fraudScore ?? "–"}</span>
-							<span title="fee">➕5%</span>
-						</div>
-						<button
-							type="button"
-							className="btn btn-primary"
-							style={{ width: "100%", justifyContent: "center" }}
-						>
-							Create route
-						</button>
-					</div>
-					<details className="dig card card-pad">
-						<summary>📄 YAML</summary>
+					</LiquidMetal>
+					<details className="dig glass step">
+						<summary>Policy as YAML</summary>
 						<pre className="code dig-body">{`route: mautrix-whatsapp-eu
 mode: ${mode}
 ${mode === "sticky" ? `sticky: { ttl: ${ttl}, on_pin_loss: ${loss} }\n` : ""}exit_types: [${exits.join(", ")}]
@@ -475,7 +437,7 @@ geo: { country: DE, city: Berlin, asn: 3320,
 risk: ${risk}
 reliability_floor: ${floor}`}</pre>
 					</details>
-				</div>
+				</aside>
 			</div>
 		</>
 	);

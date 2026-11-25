@@ -10,7 +10,8 @@ import {
 	costReliabilityFrontier,
 	paretoSet,
 } from "../lib/pareto";
-import { EXIT_ICON } from "./visual";
+import { Mark } from "./icons";
+import { ExitMark } from "./visual";
 
 interface PlotProps {
 	x: Axis;
@@ -96,7 +97,7 @@ export function FrontierPlot({
 		>
 			{small && (
 				<text x={p.l} y={12} fontSize="11" fill="var(--text-2)">
-					{y.icon} {y.label} vs {x.icon} {x.label}
+					{y.label} vs {x.label}
 				</text>
 			)}
 			{ticksY.map((v) => (
@@ -156,7 +157,7 @@ export function FrontierPlot({
 						fontSize={fs}
 						fill="var(--warn)"
 					>
-						🎯 {y.fmt(floor)} floor
+						{y.fmt(floor)} floor
 					</text>
 				</g>
 			)}
@@ -199,14 +200,12 @@ export function FrontierPlot({
 								strokeWidth="2"
 							/>
 						)}
-						<text
-							x={cx}
-							y={cy + (small ? 4 : 5)}
-							fontSize={small ? 11 : 15}
-							textAnchor="middle"
-						>
-							{EXIT_ICON[o.exitType]}
-						</text>
+						<circle
+							cx={cx}
+							cy={cy}
+							r={onFront ? (small ? 3.5 : 5) : small ? 2.5 : 3.5}
+							style={{ fill: `var(--${o.exitType})` }}
+						/>
 						{(!small || onFront) && (
 							<text
 								x={flip ? cx - 14 : cx + 14}
@@ -215,7 +214,6 @@ export function FrontierPlot({
 								fontSize={fs}
 								fill={onFront ? "var(--text)" : "var(--text-3)"}
 							>
-								{o === auto && !small ? "⭐ " : ""}
 								{o.provider}
 							</text>
 						)}
@@ -315,9 +313,6 @@ export function ParallelAxes({
 							stroke="var(--border-strong)"
 							strokeWidth="2"
 						/>
-						<text x={x} y={14} textAnchor="middle" fontSize="15">
-							{a.icon}
-						</text>
 						<text
 							x={x}
 							y={30}
@@ -375,7 +370,7 @@ export function ParallelAxes({
 							fontSize="11"
 							fill={isPick ? "var(--text)" : "var(--text-2)"}
 						>
-							{EXIT_ICON[o.exitType]} {o.provider}
+							{o.provider}
 						</text>
 					</g>
 				);
@@ -402,26 +397,27 @@ export function FrontierWalk({
 	const cost = axis("cost");
 	return (
 		<div className="walk">
-			<span className="walk-end">💸 cheapest</span>
+			<span className="walk-end">cheapest</span>
 			{front.map((o, i) => (
 				<span key={o.provider} className="walk-step">
-					{i > 0 && <span className="walk-arrow">→</span>}
+					{i > 0 && <span className="walk-wire" />}
 					<button
 						type="button"
 						className={`walk-node${o === pick ? " on" : ""}`}
 						onClick={() => onPick(o)}
+						aria-pressed={o === pick}
 					>
-						{o === auto && <span className="walk-star">⭐ default</span>}
-						<span className="big-icon">{EXIT_ICON[o.exitType]}</span>
+						{o === auto && <span className="walk-tag">default</span>}
+						<ExitMark type={o.exitType} size={22} />
 						<b>{o.provider}</b>
-						<span className="mono">{cost.fmt(cost.get(o, domain))}</span>
-						<span className="mono faint">
-							✅ {Math.round(successRate(domain, o.provider) * 100)}%
+						<span className="walk-price">{cost.fmt(cost.get(o, domain))}</span>
+						<span className="walk-works">
+							{Math.round(successRate(domain, o.provider) * 100)}% works
 						</span>
 					</button>
 				</span>
 			))}
-			<span className="walk-end">✅ most reliable</span>
+			<span className="walk-end">most reliable</span>
 		</div>
 	);
 }
@@ -441,18 +437,21 @@ export function ReliabilityBadge({
 	const pct = (n: number) => `${Math.round(n * 100)}%`;
 	if (achieved !== undefined && achieved < floor) {
 		return (
-			<span className="badge badge-warn">
-				⚠️ nothing ≥{pct(floor)} · best {pct(achieved)}
+			<span className="pill pill-warn">
+				<Mark name="shield-alert" size={14} />
+				Nothing reaches {pct(floor)} · best {pct(achieved)}
 			</span>
 		);
 	}
 	return edited ? (
-		<span className="badge badge-warn">
-			⚙️ custom · risk {risk} · ≥{pct(floor)}
+		<span className="pill pill-warn">
+			<Mark name="shield" size={14} />
+			Custom · risk {risk} · at least {pct(floor)}
 		</span>
 	) : (
-		<span className="badge badge-good">
-			⭐ high reliability · ≥{pct(floor)} works
+		<span className="pill pill-good">
+			<Mark name="shield-check" size={14} />
+			High reliability · at least {pct(floor)} works
 		</span>
 	);
 }

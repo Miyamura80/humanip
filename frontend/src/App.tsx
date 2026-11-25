@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./styles/app.css";
-import "./styles/visual.css";
 import "./styles/systems.css";
+import { Mark } from "./components/icons";
 import { ACCOUNT } from "./lib/mock";
 import { usd } from "./lib/policy";
 import { Dashboard } from "./views/Dashboard";
@@ -11,11 +11,11 @@ import { RouteBuilder } from "./views/RouteBuilder";
 import { Systems } from "./views/Systems";
 
 const VIEWS = {
-	routes: { label: "Routes", icon: "🗺️", el: <Dashboard /> },
-	new: { label: "New route", icon: "➕", el: <RouteBuilder /> },
-	lookup: { label: "Price lookup", icon: "💲", el: <PriceLookup /> },
-	connect: { label: "Connect", icon: "🔌", el: <Quickstart /> },
-	systems: { label: "Design systems", icon: "◐", el: <Systems /> },
+	routes: { label: "Routes", el: <Dashboard /> },
+	new: { label: "New route", el: <RouteBuilder /> },
+	lookup: { label: "Price lookup", el: <PriceLookup /> },
+	connect: { label: "Connect", el: <Quickstart /> },
+	systems: { label: "Systems", el: <Systems /> },
 } as const;
 
 type ViewKey = keyof typeof VIEWS;
@@ -36,46 +36,33 @@ function App() {
 
 	return (
 		<div className="shell">
-			<aside className="sidebar">
-				<div className="brand">
-					<span className="brand-mark">hip</span>
+			<header className="topnav">
+				<a href="#/routes" className="brand">
+					<span className="brand-mark">
+						<Mark name="tunnel" size={18} />
+					</span>
 					humanip
-				</div>
-				{(Object.keys(VIEWS) as ViewKey[]).map((k) => (
-					<a
-						key={k}
-						href={`#/${k}`}
-						className={`nav-item${view === k ? " active" : ""}`}
-					>
-						<span className="mono faint" style={{ width: 14 }}>
-							{VIEWS[k].icon}
-						</span>
-						{VIEWS[k].label}
-					</a>
-				))}
-				<div className="nav-section">Account</div>
-				<span className="nav-item">
-					<span className="mono faint" style={{ width: 14 }}>
-						🔑
-					</span>
-					API keys
-				</span>
-				<span className="nav-item">
-					<span className="mono faint" style={{ width: 14 }}>
-						🧾
-					</span>
-					Usage & billing
-				</span>
-				<div className="sidebar-foot">
-					<div className="faint" style={{ fontSize: 11 }}>
-						💰 balance
-					</div>
-					<div className="balance">{usd(ACCOUNT.balance)}</div>
-					<button type="button" className="btn" style={{ width: "100%" }}>
-						💳 / 🪙 Top up
+				</a>
+				<nav className="nav" aria-label="Main">
+					{(Object.keys(VIEWS) as ViewKey[]).map((k) => (
+						<a
+							key={k}
+							href={`#/${k}`}
+							className={view === k ? "on" : ""}
+							aria-current={view === k ? "page" : undefined}
+						>
+							{VIEWS[k].label}
+						</a>
+					))}
+				</nav>
+				<div className="balance-pill">
+					<span className="muted">Balance</span>
+					<b>{usd(ACCOUNT.balance)}</b>
+					<button type="button" className="btn btn-small">
+						Top up
 					</button>
 				</div>
-			</aside>
+			</header>
 			<main className="main">{VIEWS[view].el}</main>
 		</div>
 	);

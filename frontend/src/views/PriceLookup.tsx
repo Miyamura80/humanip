@@ -5,10 +5,24 @@ import {
 	ParallelAxes,
 	ReliabilityBadge,
 } from "../components/frontier";
-import { EXIT_ICON, Ring } from "../components/visual";
-import { eligibleOffers, OFFERS, successRate } from "../lib/mock";
+import { Mark } from "../components/icons";
+import { OrbitalFrontier } from "../components/orbit";
+import { ExitMark, Ring } from "../components/visual";
+import {
+	eligibleOffers,
+	OFFERS,
+	type ProviderOffer,
+	successRate,
+} from "../lib/mock";
 import { axis, defaultPick, RELIABILITY_FLOOR } from "../lib/pareto";
-import { resolveRisk, riskLabel } from "../lib/policy";
+import {
+	EXIT_LABEL,
+	resolveRisk,
+	riskLabel,
+	usd,
+	withTake,
+} from "../lib/policy";
+import LiquidMetal from "../vendor/LiquidMetal";
 
 const domainOf = (url: string) => {
 	try {
@@ -20,7 +34,7 @@ const domainOf = (url: string) => {
 	}
 };
 
-// Default risk is low: reliability-first unless changed under Advanced.
+// Reliability first unless changed under Advanced.
 const DEFAULT_RISK = 20;
 
 const MULTIPLES = [
@@ -34,13 +48,19 @@ export function PriceLookup() {
 	const [url, setUrl] = useState("https://www.linkedin.com/in/");
 	const [risk, setRisk] = useState(DEFAULT_RISK);
 	const [floor, setFloor] = useState(RELIABILITY_FLOOR);
-	const [manual, setManual] = useState<(typeof OFFERS)[number]>();
+	const [manual, setManual] = useState<ProviderOffer>();
 	const domain = domainOf(url);
 
+	// A lookup has no pin requirement, so the dial's sticky guarantee is waived.
 	const eligible = useMemo(
 		() =>
 			new Set(
-				eligibleOffers(resolveRisk(risk, ["mobile", "isp", "residential"]), 0),
+				eligibleOffers(
+					resolveRisk(risk, ["mobile", "isp", "residential"], {
+						minStickyMinutes: 0,
+					}),
+					0,
+				),
 			),
 		[risk],
 	);
@@ -52,134 +72,149 @@ export function PriceLookup() {
 	const pick = manual && eligible.has(manual) ? manual : auto;
 	const edited = risk !== DEFAULT_RISK || floor !== RELIABILITY_FLOOR;
 	const cost = axis("cost");
+	const works = pick ? successRate(domain, pick.provider) : undefined;
 
 	return (
 		<>
 			<div className="page-head">
-				<h1>💲 Price lookup</h1>
+				<div>
+					<div className="eyebrow">Price lookup</div>
+					<h1>What does a working GB cost here?</h1>
+				</div>
 			</div>
 
-			<div className="card card-pad" style={{ marginBottom: 16 }}>
-				<div className="row" style={{ gap: 12 }}>
-					<span style={{ fontSize: 20 }}>🎯</span>
-					<input
-						className="input mono"
-						style={{ flex: 1 }}
-						value={url}
-						aria-label="Target URL"
-						onChange={(e) => setUrl(e.target.value)}
-					/>
-					<ReliabilityBadge
-						edited={edited}
-						risk={risk}
-						floor={floor}
-						achieved={pick ? successRate(domain, pick.provider) : undefined}
-					/>
-				</div>
-				<details className="dig" style={{ marginTop: 12 }}>
-					<summary>⚙️ Advanced: reliability floor · risk dial</summary>
-					<div className="dig-body grid-2">
-						<div className="field">
-							<span className="field-label">
-								🎯 reliability floor · {Math.round(floor * 100)}%
-							</span>
-							<input
-								type="range"
-								min={70}
-								max={99}
-								value={Math.round(floor * 100)}
-								aria-label="Reliability floor"
-								onChange={(e) => setFloor(Number(e.target.value) / 100)}
-							/>
-						</div>
-						<div className="field">
-							<span className="field-label">
-								🛡️ risk · {risk} {riskLabel(risk)}
-							</span>
-							<input
-								type="range"
-								className="risk-slider"
-								style={{ margin: "6px 0" }}
-								min={0}
-								max={100}
-								value={risk}
-								aria-label="Risk"
-								onChange={(e) => setRisk(Number(e.target.value))}
-							/>
-						</div>
-					</div>
-				</details>
+			<div className="glass search">
+				<Mark name="tunnel" size={20} />
+				<input
+					className="search-input mono"
+					value={url}
+					aria-label="Target URL"
+					onChange={(e) => setUrl(e.target.value)}
+				/>
+				<ReliabilityBadge
+					edited={edited}
+					risk={risk}
+					floor={floor}
+					achieved={works}
+				/>
 			</div>
+			<details className="dig adv-row">
+				<summary>Advanced: reliability floor and risk dial</summary>
+				<div className="dig-body grid-2">
+					<div className="field">
+						<span className="field-label">
+							Reliability floor · {Math.round(floor * 100)}%
+						</span>
+						<input
+							type="range"
+							min={70}
+							max={99}
+							value={Math.round(floor * 100)}
+							aria-label="Reliability floor"
+							onChange={(e) => setFloor(Number(e.target.value) / 100)}
+						/>
+					</div>
+					<div className="field">
+						<span className="field-label">
+							Risk · {risk} {riskLabel(risk)}
+						</span>
+						<input
+							type="range"
+							className="risk-slider"
+							min={0}
+							max={100}
+							value={risk}
+							aria-label="Risk"
+							onChange={(e) => setRisk(Number(e.target.value))}
+						/>
+					</div>
+				</div>
+			</details>
 
 			<div className="hero">
-				<div className="card card-pad">
-					<div className="legend" style={{ marginBottom: 4 }}>
-						<span>✅ works ↑</span>
-						<span>💸 $/working GB ←</span>
-						<span style={{ marginLeft: "auto" }}>
-							━ frontier · ░ beaten · faded = over risk
-						</span>
+				<OrbitalFrontier
+					offers={OFFERS}
+					domain={domain}
+					eligible={eligible}
+					pick={pick}
+					auto={auto}
+					floor={floor}
+					onPick={setManual}
+				/>
+				<div className="hero-side">
+					<div className="eyebrow">
+						{pick === auto ? "Default pick" : "Your pick"} · {domain}
 					</div>
-					<FrontierPlot
-						x={cost}
-						y={axis("success")}
-						offers={OFFERS}
-						domain={domain}
-						eligible={eligible}
-						pick={pick}
-						auto={auto}
-						floor={floor}
-						onPick={setManual}
-					/>
+					{pick ? (
+						<LiquidMetal
+							preset="chromatic"
+							theme="dark"
+							radius={24}
+							ringWidth={2}
+						>
+							<div className="pick-card">
+								<div className="row" style={{ gap: 12 }}>
+									<ExitMark type={pick.exitType} size={26} />
+									<div>
+										<b className="pick-name">{pick.provider}</b>
+										<div className="faint">{EXIT_LABEL[pick.exitType]}</div>
+									</div>
+								</div>
+								<div className="num-xl">
+									{cost.fmt(cost.get(pick, domain))}
+									<small>per working GB</small>
+								</div>
+								<div className="row" style={{ gap: 18 }}>
+									<Ring
+										value={Math.round((works ?? 0) * 100)}
+										label="works"
+										size={60}
+									/>
+									<Ring
+										value={pick.fraudScore}
+										label="fraud"
+										invert
+										size={60}
+									/>
+								</div>
+								<div className="faint">
+									List {usd(withTake(pick.pricePerGb))}/GB incl. 5% fee, divided
+									by success rate.
+								</div>
+								<div className="row" style={{ gap: 10 }}>
+									<button type="button" className="btn btn-primary wide">
+										Create route
+									</button>
+									{pick !== auto && (
+										<button
+											type="button"
+											className="btn"
+											onClick={() => setManual(undefined)}
+										>
+											Reset
+										</button>
+									)}
+								</div>
+							</div>
+						</LiquidMetal>
+					) : (
+						<div className="glass step muted">
+							No exit fits this risk budget. Raise risk under Advanced.
+						</div>
+					)}
+					<p className="caption">
+						Closer to the centre works more often. Further round the dial costs
+						more. The bright arc is the Pareto frontier: nothing off it is both
+						cheaper and more reliable.
+					</p>
 				</div>
-				{pick && (
-					<div className="card card-pad" style={{ textAlign: "center" }}>
-						<span className={`badge ${pick === auto ? "badge-good" : ""}`}>
-							{pick === auto ? "⭐ default pick" : "👆 your pick"}
-						</span>
-						<div
-							className="big-icon"
-							style={{ fontSize: 40, margin: "14px 0 6px" }}
-						>
-							{EXIT_ICON[pick.exitType]}
-						</div>
-						<div style={{ fontSize: 16, fontWeight: 600 }}>{pick.provider}</div>
-						<div className="big-cost" style={{ margin: "6px 0 2px" }}>
-							{cost.fmt(cost.get(pick, domain))}
-						</div>
-						<div className="faint" style={{ fontSize: 11, marginBottom: 14 }}>
-							per working GB · incl. 5%
-						</div>
-						<div className="row" style={{ justifyContent: "center", gap: 14 }}>
-							<Ring
-								value={Math.round(successRate(domain, pick.provider) * 100)}
-								label="works"
-							/>
-							<Ring value={pick.fraudScore} label="fraud" invert />
-						</div>
-						{pick !== auto && (
-							<button
-								type="button"
-								className="btn"
-								style={{ marginTop: 14 }}
-								onClick={() => setManual(undefined)}
-							>
-								↺ back to ⭐
-							</button>
-						)}
-						<button
-							type="button"
-							className="btn btn-primary"
-							style={{ width: "100%", justifyContent: "center", marginTop: 14 }}
-						>
-							Create route
-						</button>
-					</div>
-				)}
 			</div>
 
-			<div className="card card-pad" style={{ marginBottom: 16 }}>
-				<b>🚶 Walk the frontier</b>
+			<section className="glass step">
+				<div className="section-head">
+					<h2>Walk the frontier</h2>
+					<span className="faint">Each step buys reliability with money.</span>
+				</div>
 				<FrontierWalk
 					offers={pool}
 					domain={domain}
@@ -187,14 +222,15 @@ export function PriceLookup() {
 					auto={auto}
 					onPick={setManual}
 				/>
-			</div>
+			</section>
 
-			<div className="card card-pad" style={{ marginBottom: 16 }}>
-				<div className="legend">
-					<b style={{ color: "var(--text)" }}>🧭 All 5 axes</b>
-					<span>↑ better on every axis</span>
-					<span>━ unbeaten · ┄ beaten on all 5</span>
-					<span style={{ marginLeft: "auto" }}>⬜ = selected</span>
+			<section className="glass step">
+				<div className="section-head">
+					<h2>All five axes</h2>
+					<span className="faint">
+						Up is better on every axis. Solid lines are not beaten on all five
+						at once.
+					</span>
 				</div>
 				<ParallelAxes
 					offers={OFFERS}
@@ -203,11 +239,11 @@ export function PriceLookup() {
 					pick={pick}
 					onPick={setManual}
 				/>
-			</div>
+			</section>
 
 			<div className="multiples">
 				{MULTIPLES.map((m) => (
-					<div key={`${m.x}-${m.y}`} className="card card-pad">
+					<div key={`${m.x}-${m.y}`} className="glass tight">
 						<FrontierPlot
 							small
 							x={axis(m.x)}

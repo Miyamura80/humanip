@@ -1,38 +1,106 @@
-// Picture-book primitives: one icon vocabulary, used everywhere.
-//   📱 mobile · 🏢 ISP · 🏠 residential
-//   📌 sticky · 🔄 rotating
-//   🤖 browser agent · 🌉 bridge · 🕷️ scraper
-//   🛡️ fraud · ⬇️ exit downgrade · 🏷️ sourcing · ⏱️ sticky guarantee
+// Orbital primitives shared by every screen: exit marks, client logos,
+// status avatars, rings, the flow line, pips and the risk gauge.
 
-import type { ExitType, RouteMode } from "../lib/policy";
+import type { RouteRow } from "../lib/mock";
+import { EXIT_LABEL, type ExitType, type RouteMode } from "../lib/policy";
+import ThinkingOrb, { type OrbState } from "../vendor/ThinkingOrb";
+import { Logo, Mark, type MarkName } from "./icons";
 
-export const EXIT_ICON: Record<ExitType, string> = {
-	mobile: "📱",
-	isp: "🏢",
-	residential: "🏠",
+const EXIT_MARK: Record<ExitType, MarkName> = {
+	mobile: "exit-mobile",
+	isp: "exit-isp",
+	residential: "exit-residential",
 };
-export const MODE_ICON: Record<RouteMode, string> = {
-	sticky: "📌",
-	rotating: "🔄",
+
+export type UseCase = RouteRow["useCase"];
+
+export const USE_LABEL: Record<UseCase, string> = {
+	browser: "Browser agent",
+	mautrix: "Bridge",
+	scrape: "Scraper",
 };
-export const USE_ICON = { browser: "🤖", mautrix: "🌉", scrape: "🕷️" } as const;
+
+/** Client logo by use case: agent, Matrix bridge (Beeper), scraper (Apify). */
+export function ClientLogo({
+	use,
+	size = 20,
+}: {
+	use: UseCase;
+	size?: number;
+}) {
+	const name =
+		use === "mautrix" ? "beeper" : use === "scrape" ? "apify" : "claude-code";
+	return <Logo name={name} size={size} label={USE_LABEL[use]} />;
+}
+
+/** Exit mark tinted with its exit colour. */
+export function ExitMark({
+	type,
+	size = 18,
+}: {
+	type: ExitType;
+	size?: number;
+}) {
+	return (
+		<Mark
+			name={EXIT_MARK[type]}
+			size={size}
+			label={EXIT_LABEL[type]}
+			style={{ color: `var(--${type})` }}
+		/>
+	);
+}
+
+const ORB_FOR: Record<UseCase, OrbState> = {
+	mautrix: "breathing",
+	browser: "searching",
+	scrape: "weaving",
+};
+
+/** Live status avatar: an animated orb, or a broken robot when the pin is lost. */
+export function StatusAvatar({
+	route,
+	size = 52,
+}: {
+	route: RouteRow;
+	size?: number;
+}) {
+	if (route.status === "pin_lost") {
+		return (
+			<span className="avatar avatar-bad" style={{ width: size, height: size }}>
+				<Mark name="broken-robot" size={size * 0.62} label="Pin lost" />
+			</span>
+		);
+	}
+	const color = route.status === "degraded" ? "#ffd479" : "#7fdfff";
+	return (
+		<span className="avatar" style={{ width: size, height: size }}>
+			<ThinkingOrb
+				state={ORB_FOR[route.useCase]}
+				size={size}
+				color={color}
+				aria-label={route.status}
+			/>
+		</span>
+	);
+}
 
 const tone = (good: number) =>
 	good >= 80 ? "var(--accent)" : good >= 60 ? "var(--warn)" : "var(--bad)";
 
-/** Donut ring with the value in the middle. `invert`: lower is better. */
+/** Thin ring gauge with a light numeral. `invert`: lower is better. */
 export function Ring({
 	value,
 	label,
 	invert,
-	size = 52,
+	size = 54,
 }: {
 	value: number | null;
 	label: string;
 	invert?: boolean;
 	size?: number;
 }) {
-	const r = size / 2 - 5;
+	const r = size / 2 - 3;
 	const c = 2 * Math.PI * r;
 	const v = value ?? 0;
 	const color = value === null ? "var(--text-3)" : tone(invert ? 100 - v : v);
@@ -43,8 +111,8 @@ export function Ring({
 					cx={size / 2}
 					cy={size / 2}
 					r={r}
-					stroke="var(--surface-3)"
-					strokeWidth="5"
+					stroke="var(--line)"
+					strokeWidth="2"
 					fill="none"
 				/>
 				<circle
@@ -52,22 +120,23 @@ export function Ring({
 					cy={size / 2}
 					r={r}
 					stroke={color}
-					strokeWidth="5"
+					strokeWidth="2"
 					fill="none"
 					strokeLinecap="round"
 					strokeDasharray={`${(Math.max(v, 2) / 100) * c} ${c}`}
 					transform={`rotate(-90 ${size / 2} ${size / 2})`}
+					style={{ filter: `drop-shadow(0 0 4px ${color})` }}
 				/>
 				<text
 					x="50%"
-					y="54%"
+					y="53%"
 					textAnchor="middle"
 					dominantBaseline="middle"
-					fontSize="13"
-					fontWeight="600"
-					fill={color}
+					fontSize="15"
+					fontWeight="300"
+					fill="var(--text)"
 				>
-					{value ?? "–"}
+					{value ?? "-"}
 				</text>
 			</svg>
 			<span className="ring-label">{label}</span>
@@ -75,49 +144,45 @@ export function Ring({
 	);
 }
 
-/** client ─▶ humanip ─▶ exit ─▶ site, the core picture of the product. */
+/** client -> humanip -> exit -> target, as a glowing line of nodes. */
 export function Flow({
-	from,
+	use,
 	exit,
-	ip,
-	broken,
+	target,
+	caption,
 	mode,
+	broken,
 }: {
-	from: string;
+	use: UseCase;
 	exit: ExitType;
-	ip: string;
-	broken?: boolean;
+	target: string;
+	caption?: string;
 	mode: RouteMode;
+	broken?: boolean;
 }) {
 	return (
 		<div className={`flow${broken ? " broken" : ""}`}>
-			<span className="node" title="client">
-				{from}
+			<span className="node">
+				<ClientLogo use={use} size={18} />
 			</span>
 			<span className="wire" />
 			<span className="node hub" title="humanip">
-				hip
+				<Mark name="tunnel" size={16} />
 			</span>
-			<span className="wire">
-				<span className="wire-tag">{MODE_ICON[mode]}</span>
+			<span className={`wire ${mode}`} />
+			<span className="node">
+				<ExitMark type={exit} />
 			</span>
-			<span className="node" title={`exit: ${exit}`}>
-				{EXIT_ICON[exit]}
-			</span>
-			<span className={`wire${broken ? " cut" : ""}`}>
-				{broken && <span className="wire-tag">✖</span>}
-			</span>
-			<span className="node" title="target">
-				🌐
-			</span>
-			<span className="flow-ip mono">{ip}</span>
+			<span className={`wire${broken ? " cut" : ""}`} />
+			<span className="node target">{target}</span>
+			{caption && <span className="flow-caption mono">{caption}</span>}
 		</div>
 	);
 }
 
 const PIP_KEYS = ["p0", "p1", "p2", "p3", "p4", "p5"];
 
-/** Small horizontal level bar, 0-4 pips. */
+/** Small level bar, 0-4 segments. */
 export function Pips({
 	n,
 	of = 4,
@@ -132,21 +197,26 @@ export function Pips({
 			{PIP_KEYS.slice(0, of).map((k, i) => (
 				<i
 					key={k}
-					style={i < n ? { background: color ?? "var(--accent)" } : undefined}
+					style={
+						i < n
+							? {
+									background: color ?? "var(--accent)",
+									boxShadow: `0 0 6px ${color ?? "var(--accent)"}`,
+								}
+							: undefined
+					}
 				/>
 			))}
 		</span>
 	);
 }
 
-/** Half-circle risk gauge with a needle. */
+/** Half-circle risk gauge. */
 export function Gauge({ value }: { value: number }) {
 	const a = Math.PI * (1 - value / 100);
 	const cx = 110;
 	const cy = 100;
 	const r = 80;
-	const nx = cx + Math.cos(a) * (r - 14);
-	const ny = cy - Math.sin(a) * (r - 14);
 	return (
 		<svg
 			viewBox="0 0 220 116"
@@ -163,38 +233,50 @@ export function Gauge({ value }: { value: number }) {
 			</defs>
 			<path
 				d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+				stroke="var(--line)"
+				strokeWidth="2"
+				fill="none"
+			/>
+			<path
+				d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r * Math.cos(a)} ${cy - r * Math.sin(a)}`}
 				stroke="url(#g-risk)"
-				strokeWidth="14"
+				strokeWidth="3"
 				fill="none"
 				strokeLinecap="round"
 			/>
-			<line
-				x1={cx}
-				y1={cy}
-				x2={nx}
-				y2={ny}
-				stroke="var(--text)"
-				strokeWidth="3"
-				strokeLinecap="round"
+			<circle
+				cx={cx + r * Math.cos(a)}
+				cy={cy - r * Math.sin(a)}
+				r="5"
+				fill="var(--text)"
 			/>
-			<circle cx={cx} cy={cy} r="6" fill="var(--text)" />
+			<text
+				x={cx}
+				y={cy - 12}
+				textAnchor="middle"
+				fontSize="34"
+				fontWeight="200"
+				fill="var(--text)"
+			>
+				{value}
+			</text>
 			<text
 				x={cx - r}
 				y={cy + 14}
-				fontSize="10"
+				fontSize="9"
 				fill="var(--text-3)"
 				textAnchor="middle"
 			>
-				🛡️ safe
+				SAFE
 			</text>
 			<text
 				x={cx + r}
 				y={cy + 14}
-				fontSize="10"
+				fontSize="9"
 				fill="var(--text-3)"
 				textAnchor="middle"
 			>
-				💸 cheap
+				CHEAP
 			</text>
 		</svg>
 	);

@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { Logo, Mark } from "../components/icons";
 import { CopyField, Segmented } from "../components/ui";
-import { EXIT_ICON, Flow } from "../components/visual";
+import { Flow } from "../components/visual";
+import ThinkingOrb from "../vendor/ThinkingOrb";
 
 type Proto = "socks5" | "http";
 type Snippet = "playwright" | "browser-use" | "mautrix" | "curl";
@@ -9,19 +11,29 @@ const GW = "gw.humanip.io";
 const KEY = "hip_live_7Qx2Fv9c";
 
 /** Each username segment, colour-coded with what it controls. */
-const PARTS: { text: string; color: string; label?: string }[] = [
+const RAW_PARTS: { text: string; color: string; label?: string }[] = [
 	{ text: "user-", color: "var(--text-3)" },
-	{ text: "route_agent", color: "var(--accent)", label: "🗺️ policy" },
+	{ text: "route_agent", color: "var(--accent)", label: "saved policy" },
 	{ text: "-", color: "var(--text-3)" },
-	{ text: "session_r42", color: "var(--mobile)", label: "📌 same IP" },
+	{ text: "session_r42", color: "var(--mobile)", label: "same IP" },
 	{ text: "-", color: "var(--text-3)" },
-	{ text: "risk_40", color: "var(--warn)", label: "🛡️ risk" },
+	{ text: "risk_40", color: "var(--warn)", label: "risk dial" },
 	{ text: "-", color: "var(--text-3)" },
-	{ text: "country_us", color: "var(--isp)", label: "🌍 geo" },
+	{ text: "country_us", color: "var(--residential)", label: "geo" },
 	{ text: ":", color: "var(--text-3)" },
-	{ text: "KEY", color: "var(--bad)", label: "🔑 key" },
+	{ text: "KEY", color: "var(--bad)", label: "API key" },
 	{ text: "@", color: "var(--text-3)" },
-	{ text: GW, color: "var(--text-2)", label: "🚪 gateway" },
+	{ text: GW, color: "var(--text-2)", label: "gateway" },
+];
+const PARTS = RAW_PARTS.map((p, n) => ({ ...p, id: `part-${n}` }));
+
+const MORE = [
+	"city_berlin",
+	"asn_3320",
+	"exit_mobile",
+	"exit_isp",
+	"exit_residential",
+	"target_linkedin.com",
 ];
 
 export function Quickstart() {
@@ -32,27 +44,29 @@ export function Quickstart() {
 	return (
 		<>
 			<div className="page-head">
-				<h1>🔌 Connect</h1>
+				<div>
+					<div className="eyebrow">Connect</div>
+					<h1>Any SOCKS5 or HTTP client. No SDK.</h1>
+				</div>
 				<Segmented
 					value={proto}
 					onChange={setProto}
 					options={[
-						{ value: "socks5", label: "🧦 SOCKS5 :1080" },
-						{ value: "http", label: "🌐 HTTP :8080" },
+						{ value: "socks5", label: "SOCKS5 :1080" },
+						{ value: "http", label: "HTTP CONNECT :8080" },
 					]}
 				/>
 			</div>
 
-			<div className="card card-pad" style={{ marginBottom: 16 }}>
-				<div className="row" style={{ marginBottom: 12, gap: 8 }}>
-					<span className="big-icon">🤖</span>
-					<b>Ad-hoc: settings ride in the username</b>
+			<section className="glass step">
+				<div className="section-head">
+					<Logo name="claude-code" size={22} label="Agent" />
+					<h2>Ad-hoc: settings ride in the username</h2>
 				</div>
 				<div className="anatomy">
 					<span className="plain">{proto}://</span>
-					{PARTS.map((p, i) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: static diagram
-						<span key={i} className="seg-part" style={{ color: p.color }}>
+					{PARTS.map((p) => (
+						<span key={p.id} className="seg-part" style={{ color: p.color }}>
 							<code
 								style={
 									p.label ? undefined : { borderBottomColor: "transparent" }
@@ -65,52 +79,61 @@ export function Quickstart() {
 					))}
 					<span className="plain">:{port}</span>
 				</div>
-				<details className="dig" style={{ marginTop: 12 }}>
-					<summary>➕ more knobs: city_ · asn_ · exit_📱🏢🏠 · target_</summary>
-					<div className="dig-body row" style={{ flexWrap: "wrap" }}>
-						<span className="chip mono">city_berlin</span>
-						<span className="chip mono">asn_3320</span>
-						{(Object.keys(EXIT_ICON) as (keyof typeof EXIT_ICON)[]).map((e) => (
-							<span key={e} className="chip mono">
-								{EXIT_ICON[e]} exit_{e}
+				<details className="dig" style={{ marginTop: 14 }}>
+					<summary>
+						More keys: city, ASN, exit type, target. Leave out session for
+						rotating.
+					</summary>
+					<div className="dig-body chips">
+						{MORE.map((k) => (
+							<span key={k} className="chip mono">
+								{k}
 							</span>
 						))}
-						<span className="chip mono">🎯 target_linkedin.com</span>
-						<span className="faint">omit session_ → 🔄 rotating</span>
 					</div>
 				</details>
-			</div>
+			</section>
 
-			<div className="split" style={{ marginBottom: 16 }}>
-				<div className="card card-pad">
-					<div className="row" style={{ marginBottom: 12, gap: 8 }}>
-						<span className="big-icon">🌉</span>
-						<b>Named route: policy stays server-side</b>
+			<div className="grid-2">
+				<section className="glass step">
+					<div className="section-head">
+						<Logo name="beeper" size={22} label="Bridge" />
+						<h2>Named route: policy stays server-side</h2>
 					</div>
 					<Flow
-						from="🌉"
+						use="mautrix"
 						exit="mobile"
-						ip="172.58.201.44 · 41d"
+						target="wa"
 						mode="sticky"
+						caption="172.58.201.44 · pinned 41d"
 					/>
-					<div style={{ marginTop: 12 }}>
+					<div style={{ marginTop: 26 }}>
 						<CopyField
 							value={`${proto}://rt_wa_bridge:${KEY}@rt-wa-bridge.${GW}:${port}`}
 						/>
 					</div>
-				</div>
-				<div className="card card-pad">
-					<div className="row" style={{ marginBottom: 12, gap: 8 }}>
-						<span className="big-icon">🔍</span>
-						<b>Check your exit</b>
+				</section>
+				<section className="glass step">
+					<div className="section-head">
+						<ThinkingOrb state="searching" size={24} color="#7fdfff" />
+						<h2>Check your exit</h2>
 					</div>
 					<pre className="code">{`$ curl -x ${proto}://…@${GW}:${port} https://${GW}/whoami
-{ "ip": "172.58.201.44", "type": "📱 mobile",
+{ "ip": "172.58.201.44", "type": "mobile",
   "asn": 21928, "fraud": 4, "pinned": "41d" }`}</pre>
-				</div>
+					<div className="row faint" style={{ gap: 8, marginTop: 12 }}>
+						<Mark
+							name="shield-check"
+							size={14}
+							style={{ color: "var(--accent)" }}
+						/>
+						Reputation is checked against IPQS and Scamalytics before an exit is
+						handed out.
+					</div>
+				</section>
 			</div>
 
-			<div className="card card-pad">
+			<section className="glass step">
 				<div className="tabs">
 					{(["playwright", "browser-use", "mautrix", "curl"] as Snippet[]).map(
 						(s) => (
@@ -126,7 +149,7 @@ export function Quickstart() {
 					)}
 				</div>
 				<pre className="code">{SNIPPETS[snippet](proto, port)}</pre>
-			</div>
+			</section>
 		</>
 	);
 }
@@ -148,7 +171,7 @@ const SNIPPETS: Record<Snippet, (p: Proto, port: number) => string> = {
 proxy:
   url: ${p}://rt_wa_bridge:\${HUMANIP_KEY}@rt-wa-bridge.${GW}:${port}`,
 	curl: (p, port) => `curl -H "Authorization: Bearer $HUMANIP_KEY" \\
-  "https://api.humanip.io/v1/quote?url=https://linkedin.com&risk=35"
+  "https://api.humanip.io/v1/quote?url=https://linkedin.com"
 
 curl -x ${p}://user-session_demo:$HUMANIP_KEY@${GW}:${port} https://${GW}/whoami`,
 };
