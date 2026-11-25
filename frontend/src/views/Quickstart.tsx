@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useGatewayConfig } from "../api/resource";
 import { Logo, Mark } from "../components/icons";
 import { CopyField, Segmented } from "../components/ui";
 import { Flow } from "../components/visual";
@@ -7,11 +8,15 @@ import ThinkingOrb from "../vendor/ThinkingOrb";
 type Proto = "socks5" | "http";
 type Snippet = "playwright" | "browser-use" | "mautrix" | "curl";
 
-const GW = "gw.humanip.io";
-const KEY = "hip_live_7Qx2Fv9c";
+// Defaults until `/app/api/config` answers.
+const DEFAULT_GW = "gw.humanip.io";
+const DEFAULT_PORTS = { socks5: 1080, http: 8080 };
+const KEY = "<YOUR_KEY>";
 
 /** Each username segment, colour-coded with what it controls. */
-const RAW_PARTS: { text: string; color: string; label?: string }[] = [
+const rawParts = (
+	gw: string,
+): { text: string; color: string; label?: string }[] => [
 	{ text: "user-", color: "var(--text-3)" },
 	{ text: "route_agent", color: "var(--accent)", label: "saved policy" },
 	{ text: "-", color: "var(--text-3)" },
@@ -23,9 +28,8 @@ const RAW_PARTS: { text: string; color: string; label?: string }[] = [
 	{ text: ":", color: "var(--text-3)" },
 	{ text: "KEY", color: "var(--bad)", label: "API key" },
 	{ text: "@", color: "var(--text-3)" },
-	{ text: GW, color: "var(--text-2)", label: "gateway" },
+	{ text: gw, color: "var(--text-2)", label: "gateway" },
 ];
-const PARTS = RAW_PARTS.map((p, n) => ({ ...p, id: `part-${n}` }));
 
 const MORE = [
 	"city_berlin",
@@ -39,7 +43,13 @@ const MORE = [
 export function Quickstart() {
 	const [proto, setProto] = useState<Proto>("socks5");
 	const [snippet, setSnippet] = useState<Snippet>("playwright");
-	const port = proto === "socks5" ? 1080 : 8080;
+	const cfg = useGatewayConfig();
+	const GW = cfg?.gateway_host ?? DEFAULT_GW;
+	const ports = cfg
+		? { socks5: cfg.socks_port, http: cfg.http_port }
+		: DEFAULT_PORTS;
+	const port = ports[proto];
+	const PARTS = rawParts(GW).map((p, n) => ({ ...p, id: `part-${n}` }));
 
 	return (
 		<>
@@ -52,8 +62,8 @@ export function Quickstart() {
 					value={proto}
 					onChange={setProto}
 					options={[
-						{ value: "socks5", label: "SOCKS5 :1080" },
-						{ value: "http", label: "HTTP CONNECT :8080" },
+						{ value: "socks5", label: `SOCKS5 :${ports.socks5}` },
+						{ value: "http", label: `HTTP CONNECT :${ports.http}` },
 					]}
 				/>
 			</div>
@@ -148,29 +158,32 @@ export function Quickstart() {
 						),
 					)}
 				</div>
-				<pre className="code">{SNIPPETS[snippet](proto, port)}</pre>
+				<pre className="code">{SNIPPETS[snippet](proto, port, GW)}</pre>
 			</section>
 		</>
 	);
 }
 
-const SNIPPETS: Record<Snippet, (p: Proto, port: number) => string> = {
-	playwright: (p, port) => `const browser = await chromium.launch({
+const SNIPPETS: Record<
+	Snippet,
+	(p: Proto, port: number, GW: string) => string
+> = {
+	playwright: (p, port, GW) => `const browser = await chromium.launch({
   proxy: {
     server: "${p}://${GW}:${port}",
     username: \`user-route_agent-session_\${runId}-risk_40\`,
     password: process.env.HUMANIP_KEY,
   },
 });`,
-	"browser-use": (p, port) => `profile = BrowserProfile(proxy={
+	"browser-use": (p, port, GW) => `profile = BrowserProfile(proxy={
     "server": "${p}://${GW}:${port}",
     "username": f"user-session_{run_id}-target_linkedin.com",
     "password": os.environ["HUMANIP_KEY"],
 })`,
-	mautrix: (p, port) => `# config.yaml
+	mautrix: (p, port, GW) => `# config.yaml
 proxy:
   url: ${p}://rt_wa_bridge:\${HUMANIP_KEY}@rt-wa-bridge.${GW}:${port}`,
-	curl: (p, port) => `curl -H "Authorization: Bearer $HUMANIP_KEY" \\
+	curl: (p, port, GW) => `curl -H "Authorization: Bearer $HUMANIP_KEY" \\
   "https://api.humanip.io/v1/quote?url=https://linkedin.com"
 
 curl -x ${p}://user-session_demo:$HUMANIP_KEY@${GW}:${port} https://${GW}/whoami`,
