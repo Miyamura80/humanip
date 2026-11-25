@@ -6,7 +6,12 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": ["**", "!!**/dist", "!frontend/src/vendor"]
+		"includes": [
+			"**",
+			"!!**/dist",
+			"!!.claude/worktrees",
+			"!frontend/src/vendor"
+		]
 	},
 	"formatter": {
 		"enabled": true,
