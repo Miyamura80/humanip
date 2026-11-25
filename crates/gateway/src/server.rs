@@ -1,19 +1,30 @@
 //! Accept loops: SOCKS5 and HTTP (CONNECT plus plain-HTTP forwarding) front
-//! ends over one selector.
+//! ends over one selector and one account store.
 //!
-//! Per connection: handshake, authenticate (password = API key, username =
-//! settings), choose an exit, dial the upstream (one retry when policy
-//! allows), report the outcome to passive health, then splice bytes.
+//! ```text
+//! handshake -> authenticate (store; password = API key, username = settings)
+//!           -> admit (store: revoked / balance / monthly cap)
+//!           -> abuse::check (domain rules vs KYC tier)
+//!           -> choose + dial (one retry when policy allows) -> passive health
+//!           -> splice through a byte counter -> record_usage on close
+//! ```
 
+use crate::accounts_bridge::{self, AbuseCheck, Refusal};
 use crate::config::GatewayConfig;
 use crate::health::{HealthTracker, Outcome};
-use crate::select::{authenticate, AuthedUser, Choice, DialFailure, SelectError, Selector};
+use crate::meter::{Billing, Conn};
+use crate::metrics::{self, ConnResult, Proto};
+use crate::select::{
+    target_domain, AuthError, AuthedUser, Choice, DialFailure, SelectError, Selector,
+};
 use crate::socks5::{self, ProtoError, Reply};
 use crate::{http, upstream, TargetAddr};
+use humanip_core::abuse;
+use humanip_core::accounts::AccountStore;
 use std::io;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::io::{copy_bidirectional, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 /// Why a connection could not be opened, mapped to protocol replies.
@@ -49,16 +60,41 @@ impl OpenError {
             OpenError::Dial(_) => (502, "Upstream Failed"),
         }
     }
+
+    fn conn_result(&self) -> ConnResult {
+        match self {
+            OpenError::Select(SelectError::UnknownRoute(_)) => ConnResult::Denied,
+            _ => ConnResult::DialFailed,
+        }
+    }
+}
+
+fn now_unix() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 pub struct Gateway {
     selector: Selector,
     health: Arc<HealthTracker>,
     timeout: Duration,
+    accounts: Arc<dyn AccountStore>,
+    abuse: AbuseCheck,
 }
 
 impl Gateway {
-    pub fn new(cfg: GatewayConfig) -> Arc<Self> {
+    /// Gateway over `accounts` (keys, balances, usage) with the real abuse rules.
+    pub fn new(cfg: GatewayConfig, accounts: Arc<dyn AccountStore>) -> Arc<Self> {
+        Self::with_abuse_check(cfg, accounts, abuse::check)
+    }
+
+    /// Like [`Gateway::new`] with a custom abuse check (tests).
+    pub fn with_abuse_check(
+        cfg: GatewayConfig,
+        accounts: Arc<dyn AccountStore>,
+        abuse: AbuseCheck,
+    ) -> Arc<Self> {
         let health = Arc::new(HealthTracker::default());
         let timeout = Duration::from_millis(cfg.connect_timeout_ms);
         let selector = Selector::new(Arc::new(cfg), health.clone());
@@ -66,6 +102,8 @@ impl Gateway {
             selector,
             health,
             timeout,
+            accounts,
+            abuse,
         })
     }
 
@@ -75,6 +113,52 @@ impl Gateway {
 
     pub fn health(&self) -> &HealthTracker {
         &self.health
+    }
+
+    pub fn accounts(&self) -> &Arc<dyn AccountStore> {
+        &self.accounts
+    }
+
+    /// Resolve credentials with the account store (off the async runtime).
+    pub async fn authenticate(
+        &self,
+        username: String,
+        password: String,
+    ) -> Result<AuthedUser, AuthError> {
+        let store = self.accounts.clone();
+        tokio::task::spawn_blocking(move || {
+            accounts_bridge::authenticate(&*store, &username, &password)
+        })
+        .await
+        .unwrap_or_else(|e| Err(AuthError::Store(e.to_string())))
+    }
+
+    /// Admission (store) then abuse rules, before any dial.
+    pub async fn admit(&self, who: &AuthedUser, target: &TargetAddr) -> Result<(), Refusal> {
+        let store = self.accounts.clone();
+        let key_id = who.key.key_id.clone();
+        let answer = tokio::task::spawn_blocking(move || store.admit(&key_id, now_unix()))
+            .await
+            .map_err(|e| Refusal::Store(e.to_string()))?;
+        accounts_bridge::admission(answer)?;
+        let domain = target_domain(&who.user, target);
+        let rules = &self.selector.config().blocked_domains;
+        (self.abuse)(rules, &domain, who.key.kyc_tier).map_err(Refusal::Blocked)
+    }
+
+    fn billing(&self, who: &AuthedUser, choice: &Choice) -> Billing {
+        let price = self
+            .selector
+            .config()
+            .provider(&choice.provider)
+            .map_or(0.0, |p| p.price_per_gb);
+        Billing {
+            store: self.accounts.clone(),
+            key_id: who.key.key_id.clone(),
+            provider: choice.provider.clone(),
+            domain: choice.domain.clone(),
+            provider_price_per_gb: price,
+        }
     }
 
     /// Choose and dial an exit. Retries once when a failed pin may fail over.
@@ -107,6 +191,7 @@ impl Gateway {
                     };
                     self.health
                         .record(&choice.provider, &choice.domain, outcome, Instant::now());
+                    metrics::dial_failure(&choice.provider);
                     tracing::warn!(provider = %choice.provider, target = %target, error = %e, "upstream dial failed");
                     match self.selector.report_dial_failure(&choice) {
                         DialFailure::FailClosed => {
@@ -146,39 +231,50 @@ impl Gateway {
     }
 
     async fn handle_socks(&self, mut client: TcpStream) -> Result<(), ProtoError> {
+        let mut conn = Conn::open(Proto::Socks5);
         let (username, password) = socks5::negotiate(&mut client).await?;
-        let who = match authenticate(self.selector.config(), &username, &password) {
+        let who = match self.authenticate(username, password).await {
             Ok(who) => {
                 socks5::auth_reply(&mut client, true).await?;
                 who
             }
             Err(e) => {
+                conn.set(auth_result(&e));
                 socks5::auth_reply(&mut client, false).await?;
                 return Err(ProtoError::Rejected(e.to_string()));
             }
         };
         let target = socks5::read_request(&mut client).await?;
-        match self.open(&who, &target).await {
-            Ok((mut up, _choice)) => {
-                socks5::reply(&mut client, Reply::Succeeded).await?;
-                copy_bidirectional(&mut client, &mut up).await?;
-                Ok(())
-            }
-            Err(e) => {
-                socks5::reply(&mut client, e.socks_reply()).await?;
-                Err(ProtoError::Rejected(format!("{e:?}")))
-            }
+        if let Err(r) = self.admit(&who, &target).await {
+            conn.set(r.conn_result());
+            socks5::reply(&mut client, r.socks_reply()).await?;
+            return Err(ProtoError::Rejected(format!("{r:?}")));
         }
+        let (up, choice) = match self.open(&who, &target).await {
+            Ok(opened) => opened,
+            Err(e) => {
+                conn.set(e.conn_result());
+                socks5::reply(&mut client, e.socks_reply()).await?;
+                return Err(ProtoError::Rejected(format!("{e:?}")));
+            }
+        };
+        let mut up = conn.meter(up, self.billing(&who, &choice));
+        conn.set(ConnResult::Ok);
+        socks5::reply(&mut client, Reply::Succeeded).await?;
+        copy_bidirectional(&mut client, &mut up).await?;
+        Ok(())
     }
 
     async fn handle_http(&self, mut client: TcpStream) -> Result<(), ProtoError> {
         let req = match http::read_request(&mut client).await {
             Ok(r) => r,
             Err(ProtoError::Protocol(msg)) if msg.starts_with("method not supported") => {
+                let _conn = Conn::open(Proto::HttpForward);
                 http::write_response(&mut client, 501, "Not Implemented", &CLOSE).await?;
                 return Err(ProtoError::Protocol(msg));
             }
             Err(e) => {
+                let _conn = Conn::open(Proto::HttpForward);
                 http::write_response(&mut client, 400, "Bad Request", &CLOSE).await?;
                 return Err(e);
             }
@@ -187,6 +283,11 @@ impl Gateway {
             http::ProxyRequest::Connect(c) => (c.target, c.credentials, None),
             http::ProxyRequest::Forward(f) => (f.target, f.credentials, Some((f.head, f.body))),
         };
+        let mut conn = Conn::open(if forward.is_some() {
+            Proto::HttpForward
+        } else {
+            Proto::HttpConnect
+        });
         // Chunked request bodies are not parsed yet, so the end of the body is
         // unknown and a pipelined request after it could reach the origin with
         // Proxy-Authorization intact. Refuse them until a chunked parser lands;
@@ -200,24 +301,39 @@ impl Gateway {
         // clients do not wait for a body; CONNECT replies stay as before.
         let extra: &[(&str, &str)] = if forward.is_some() { &CLOSE } else { &[] };
         let Some((username, password)) = credentials else {
+            conn.set(ConnResult::AuthFailed);
             deny(&mut client, extra).await?;
             return Err(ProtoError::Rejected("missing credentials".into()));
         };
-        let who = match authenticate(self.selector.config(), &username, &password) {
+        let who = match self.authenticate(username, password).await {
             Ok(who) => who,
             Err(e) => {
-                deny(&mut client, extra).await?;
+                conn.set(auth_result(&e));
+                if matches!(e, AuthError::Store(_)) {
+                    http::write_response(&mut client, 503, "Accounts Unavailable", extra).await?;
+                } else {
+                    deny(&mut client, extra).await?;
+                }
                 return Err(ProtoError::Rejected(e.to_string()));
             }
         };
-        let mut up = match self.open(&who, &target).await {
-            Ok((up, _choice)) => up,
+        if let Err(r) = self.admit(&who, &target).await {
+            conn.set(r.conn_result());
+            let (code, reason) = r.http_status();
+            http::write_response(&mut client, code, &reason, extra).await?;
+            return Err(ProtoError::Rejected(format!("{r:?}")));
+        }
+        let (up, choice) = match self.open(&who, &target).await {
+            Ok(opened) => opened,
             Err(e) => {
+                conn.set(e.conn_result());
                 let (code, reason) = e.http_status();
                 http::write_response(&mut client, code, reason, extra).await?;
                 return Err(ProtoError::Rejected(format!("{e:?}")));
             }
         };
+        let mut up = conn.meter(up, self.billing(&who, &choice));
+        conn.set(ConnResult::Ok);
         match forward {
             None => {
                 http::write_response(&mut client, 200, "Connection Established", &[]).await?;
@@ -229,6 +345,13 @@ impl Gateway {
             }
         }
         Ok(())
+    }
+}
+
+fn auth_result(e: &AuthError) -> ConnResult {
+    match e {
+        AuthError::Store(_) => ConnResult::Denied,
+        AuthError::BadKey | AuthError::BadUsername(_) => ConnResult::AuthFailed,
     }
 }
 
@@ -263,13 +386,13 @@ async fn deny(client: &mut TcpStream, extra: &[(&str, &str)]) -> io::Result<()> 
 /// to the origin only within the declared body, so a second pipelined request
 /// (which would still carry `Proxy-Authorization`) is never forwarded.
 /// `Transfer-Encoding` bodies are spliced unparsed.
-async fn splice_forward(
+async fn splice_forward<U: AsyncRead + AsyncWrite + Unpin>(
     client: &mut TcpStream,
-    up: &mut TcpStream,
+    up: &mut U,
     body: http::RequestBody,
 ) -> io::Result<()> {
     let (mut cr, mut cw) = client.split();
-    let (mut ur, mut uw) = up.split();
+    let (mut ur, mut uw) = tokio::io::split(up);
     let upload = async {
         match body {
             http::RequestBody::None => {}
@@ -293,8 +416,22 @@ async fn splice_forward(
     }
 }
 
+/// The account store for `cfg`: the in-memory dev store seeded from
+/// `api_keys`, or (once integrated) the SQLite ledger at `accounts_db`.
+pub fn accounts_for(cfg: &GatewayConfig) -> io::Result<Arc<dyn AccountStore>> {
+    match &cfg.accounts_db {
+        None => Ok(Arc::new(accounts_bridge::memory_from_config(cfg))),
+        // INTEGRATION: open the ledger crate's SQLite store here.
+        Some(path) => Err(io::Error::other(format!(
+            "accounts_db {path:?} is set, but the SQLite ledger is not wired into the gateway \
+             yet; remove accounts_db to use the in-memory dev store from api_keys"
+        ))),
+    }
+}
+
 /// Bind both listeners from the config and serve until one fails.
 pub async fn run(cfg: GatewayConfig) -> io::Result<()> {
+    let accounts = accounts_for(&cfg)?;
     let socks = TcpListener::bind(&cfg.socks_listen).await?;
     let http = TcpListener::bind(&cfg.http_listen).await?;
     eprintln!(
@@ -312,7 +449,7 @@ pub async fn run(cfg: GatewayConfig) -> io::Result<()> {
             );
         }
     }
-    let gw = Gateway::new(cfg);
+    let gw = Gateway::new(cfg, accounts);
     // Drop idle-expired sticky pins once a minute.
     let sweeper = gw.clone();
     tokio::spawn(async move {
@@ -325,6 +462,7 @@ pub async fn run(cfg: GatewayConfig) -> io::Result<()> {
             }
         }
     });
+    // INTEGRATION: spawn the admin server (cfg.admin_listen) here with gw.accounts().
     tokio::try_join!(gw.clone().serve_socks(socks), gw.serve_http(http))?;
     Ok(())
 }

@@ -11,9 +11,11 @@
 //! - [`health`]: passive per-(provider, domain) success tracking.
 //! - [`server`]: accept loops that wire the above together.
 
+pub mod accounts_bridge;
 pub mod config;
 pub mod health;
 pub mod http;
+pub mod meter;
 pub mod metrics;
 pub mod providers;
 pub mod select;

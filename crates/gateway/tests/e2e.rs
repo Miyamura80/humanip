@@ -2,6 +2,7 @@
 //! Gateway B dials directly (dev mode), so this proves real upstream chaining
 //! over both SOCKS5 and HTTP CONNECT without any external network.
 
+use humanip_gateway::accounts_bridge::memory_from_config;
 use humanip_gateway::config::parse_yaml;
 use humanip_gateway::server::Gateway;
 use humanip_gateway::{http, socks5, TargetAddr};
@@ -36,7 +37,9 @@ async fn echo_server() -> SocketAddr {
 
 /// Start a gateway on ephemeral ports; returns (socks addr, http addr, handle).
 async fn start(yaml: &str) -> (SocketAddr, SocketAddr, Arc<Gateway>) {
-    let gw = Gateway::new(parse_yaml(yaml).expect("config"));
+    let cfg = parse_yaml(yaml).expect("config");
+    let accounts = Arc::new(memory_from_config(&cfg));
+    let gw = Gateway::new(cfg, accounts);
     let s = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let h = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let (sa, ha) = (s.local_addr().unwrap(), h.local_addr().unwrap());

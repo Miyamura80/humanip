@@ -5,10 +5,12 @@
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
+use humanip_gateway::accounts_bridge::memory_from_config;
 use humanip_gateway::config::parse_yaml;
 use humanip_gateway::server::Gateway;
 use humanip_gateway::{http, TargetAddr};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -51,7 +53,9 @@ async fn origin_server() -> SocketAddr {
 
 /// Start a gateway; returns its HTTP listener address.
 async fn start(yaml: &str) -> SocketAddr {
-    let gw = Gateway::new(parse_yaml(yaml).expect("config"));
+    let cfg = parse_yaml(yaml).expect("config");
+    let accounts = Arc::new(memory_from_config(&cfg));
+    let gw = Gateway::new(cfg, accounts);
     let h = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = h.local_addr().unwrap();
     tokio::spawn(gw.serve_http(h));

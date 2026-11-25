@@ -1,7 +1,7 @@
 //! Authentication and exit selection.
 //!
 //! ```text
-//! username + password --authenticate--> AuthedUser
+//! username --parse_user--> ProxyUser --+ KeyRecord (account store) --> AuthedUser
 //! AuthedUser + target --choose--> effective policy --> pin lookup
 //!                                   |-- live pin: reuse provider and upstream session
 //!                                   '-- no pin / lost pin: candidates -> eligible -> default_pick
@@ -10,6 +10,7 @@
 use crate::config::{GatewayConfig, ProviderConfig};
 use crate::session::{Pin, PinKey, SessionTable};
 use crate::{SuccessSource, TargetAddr, Upstream, NEUTRAL_SUCCESS};
+use humanip_core::accounts::KeyRecord;
 use humanip_core::domain_of;
 use humanip_core::pareto::{check_eligible, default_pick, Offer};
 use humanip_core::policy::{
@@ -26,8 +27,21 @@ use std::time::{Duration, Instant};
 /// A client that presented a valid API key.
 #[derive(Clone, Debug)]
 pub struct AuthedUser {
+    /// The account store's record for the presented key.
+    pub key: KeyRecord,
+    /// Always `key.key_id`. Sticky pins and rotating session ids use it.
     pub key_name: String,
     pub user: ProxyUser,
+}
+
+impl AuthedUser {
+    pub fn new(key: KeyRecord, user: ProxyUser) -> Self {
+        Self {
+            key_name: key.key_id.clone(),
+            key,
+            user,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -36,36 +50,28 @@ pub enum AuthError {
     BadUsername(String),
     #[error("invalid API key")]
     BadKey,
+    #[error("account store: {0}")]
+    Store(String),
 }
 
-/// Byte equality that takes the same time whatever the contents.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    let mut diff = u8::from(a.len() != b.len());
-    for i in 0..a.len().max(b.len()) {
-        diff |= a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0);
+/// Per-connection settings from the proxy username. A bare `user` (or
+/// `user-`) means none. The password (API key) is resolved by the account
+/// store, see [`crate::accounts_bridge::authenticate`].
+pub fn parse_user(username: &str) -> Result<ProxyUser, AuthError> {
+    match username {
+        "user" | "user-" => Ok(ProxyUser::default()),
+        u => username::parse(u).map_err(|e| AuthError::BadUsername(e.to_string())),
     }
-    std::hint::black_box(diff) == 0
 }
 
-/// Password is the API key. Compare against every key in constant time (no early exit on mismatch).
-/// A bare `user` (or `user-`) username means no per-connection settings.
-pub fn authenticate(
-    cfg: &GatewayConfig,
-    username: &str,
-    password: &str,
-) -> Result<AuthedUser, AuthError> {
-    let user = match username {
-        "user" | "user-" => ProxyUser::default(),
-        u => username::parse(u).map_err(|e| AuthError::BadUsername(e.to_string()))?,
-    };
-    let mut found = None;
-    for k in &cfg.api_keys {
-        if ct_eq(k.key.as_bytes(), password.as_bytes()) {
-            found = Some(&k.name);
-        }
+/// The domain a connection is selected, billed and abuse-checked under: the
+/// username `target` if set, else `domain_of(host)`, else the IP string.
+pub fn target_domain(user: &ProxyUser, target: &TargetAddr) -> String {
+    match (&user.target, target) {
+        (Some(t), _) => t.clone(),
+        (None, TargetAddr::Ip(a)) => a.ip().to_string(),
+        (None, TargetAddr::Domain(h, _)) => domain_of(h),
     }
-    let key_name = found.ok_or(AuthError::BadKey)?.clone();
-    Ok(AuthedUser { key_name, user })
 }
 
 /// The exit picked for one connection.
@@ -289,11 +295,7 @@ impl Selector {
         now: Instant,
     ) -> Result<Choice, SelectError> {
         let policy = self.effective_policy(&who.user)?;
-        let domain = match (&who.user.target, target) {
-            (Some(t), _) => t.clone(),
-            (None, TargetAddr::Ip(a)) => a.ip().to_string(),
-            (None, TargetAddr::Domain(h, _)) => domain_of(h),
-        };
+        let domain = target_domain(&who.user, target);
         let country = policy.geo.country.clone();
         let no_exit = || SelectError::NoEligibleExit {
             domain: domain.clone(),
@@ -403,12 +405,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ct_eq_matches_only_equal_bytes() {
-        assert!(ct_eq(b"abc", b"abc"));
-        assert!(!ct_eq(b"abc", b"abd"));
-        assert!(!ct_eq(b"abc", b"abcd"));
-        assert!(!ct_eq(b"", b"a"));
-        assert!(ct_eq(b"", b""));
+    fn target_domain_prefers_username_target_then_host_then_ip() {
+        let t = TargetAddr::Domain("www.Example.com".into(), 443);
+        let ip = TargetAddr::Ip("10.1.2.3:80".parse().unwrap());
+        let mut u = ProxyUser::default();
+        assert_eq!(target_domain(&u, &t), "example.com");
+        assert_eq!(target_domain(&u, &ip), "10.1.2.3");
+        u.target = Some("chase.com".into());
+        assert_eq!(target_domain(&u, &t), "chase.com");
+        assert_eq!(target_domain(&u, &ip), "chase.com");
+    }
+
+    #[test]
+    fn parse_user_accepts_bare_user() {
+        assert!(parse_user("user").unwrap().session.is_none());
+        assert!(parse_user("user-").is_ok());
+        assert!(matches!(
+            parse_user("alice"),
+            Err(AuthError::BadUsername(_))
+        ));
     }
 
     #[test]

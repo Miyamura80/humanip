@@ -1,10 +1,9 @@
 //! Policy layer: auth, exit selection and sticky pins, end to end without network.
 
 use humanip_core::policy::PinLoss;
+use humanip_gateway::accounts_bridge::{authenticate, memory_from_config};
 use humanip_gateway::config::{parse_yaml, GatewayConfig};
-use humanip_gateway::select::{
-    authenticate, AuthError, AuthedUser, Choice, DialFailure, SelectError, Selector,
-};
+use humanip_gateway::select::{AuthError, AuthedUser, Choice, DialFailure, SelectError, Selector};
 use humanip_gateway::{SuccessSource, TargetAddr, Upstream};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -80,7 +79,7 @@ fn setup(rates: &[(&str, f64)]) -> (Selector, Arc<Fake>) {
 }
 
 fn who(sel: &Selector, username: &str) -> AuthedUser {
-    authenticate(sel.config(), username, "k-alice").expect("auth")
+    authenticate(&memory_from_config(sel.config()), username, "k-alice").expect("auth")
 }
 
 fn target() -> TargetAddr {
@@ -100,19 +99,21 @@ const HEALTHY: &[(&str, f64)] = &[("cheap", 0.97), ("pricey", 0.97), ("mobile", 
 #[test]
 fn authenticate_accepts_valid_key_and_rejects_others() {
     let (sel, _) = setup(HEALTHY);
-    let a = authenticate(sel.config(), "user-session_x", "k-bob").unwrap();
-    assert_eq!(a.key_name, "bob");
+    let store = memory_from_config(sel.config());
+    let a = authenticate(&store, "user-session_x", "k-bob").unwrap();
+    assert_eq!(a.key_name, "key_bob");
+    assert_eq!(a.key.key_id, "key_bob");
     assert_eq!(a.user.session.as_deref(), Some("x"));
     assert!(matches!(
-        authenticate(sel.config(), "user-session_x", "k-nope"),
+        authenticate(&store, "user-session_x", "k-nope"),
         Err(AuthError::BadKey)
     ));
     assert!(matches!(
-        authenticate(sel.config(), "user-session_x", ""),
+        authenticate(&store, "user-session_x", ""),
         Err(AuthError::BadKey)
     ));
     assert!(matches!(
-        authenticate(sel.config(), "alice", "k-alice"),
+        authenticate(&store, "alice", "k-alice"),
         Err(AuthError::BadUsername(_))
     ));
 }
@@ -163,7 +164,7 @@ fn sticky_session_reuses_provider_and_upstream_session() {
     assert_eq!(second.upstream, first.upstream);
     assert_eq!(sel.sessions().len(), 1);
     let key = second.pin.unwrap();
-    assert_eq!((key.key_name.as_str(), key.route), ("alice", None));
+    assert_eq!((key.key_name.as_str(), key.route), ("key_alice", None));
 }
 
 #[test]
