@@ -309,7 +309,7 @@ impl Selector {
             let sid = self.rotating_session_id(&who.key_name);
             return Ok(Choice {
                 provider: p.name.clone(),
-                upstream: p.upstream.render(&sid, country.as_deref()),
+                upstream: p.upstream.render(&sid, false, country.as_deref()),
                 pin: None,
                 reused_pin: false,
                 on_pin_loss: PinLoss::Any,
@@ -325,7 +325,7 @@ impl Selector {
         };
         let choice = |p: &ProviderConfig, sid: &str, reused: bool| Choice {
             provider: p.name.clone(),
-            upstream: p.upstream.render(sid, country.as_deref()),
+            upstream: p.upstream.render(sid, true, country.as_deref()),
             pin: Some(key.clone()),
             reused_pin: reused,
             on_pin_loss: sticky.on_pin_loss,

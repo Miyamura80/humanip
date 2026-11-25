@@ -39,6 +39,76 @@ providers:
       username: "{session}"
       password: provider-password
 
+  # Named adapters: give only the vendor's credentials and the gateway builds
+  # the host, port and username syntax for session stickiness and country
+  # targeting (see crates/gateway/src/providers/). Every kind also accepts
+  # `protocol: socks5 | http` and `endpoint: host:port` for regional gateways.
+  # Uncomment one and fill in the selection facts for your plan.
+  #
+  # - name: brightdata-resi
+  #   exit_type: residential
+  #   sourcing: verified
+  #   price_per_gb: 4.0
+  #   fraud_score: 15
+  #   max_sticky_minutes: 30
+  #   latency_ms: 400
+  #   upstream: { kind: brightdata, customer: hl_abc123, zone: residential1, password: xyz }
+  #
+  # - name: oxylabs-resi
+  #   exit_type: residential
+  #   sourcing: verified
+  #   price_per_gb: 4.0
+  #   fraud_score: 15
+  #   max_sticky_minutes: 10
+  #   latency_ms: 400
+  #   upstream: { kind: oxylabs, username: myuser, password: xyz }
+  #
+  # - name: decodo-resi
+  #   exit_type: residential
+  #   sourcing: verified
+  #   price_per_gb: 3.5
+  #   fraud_score: 15
+  #   max_sticky_minutes: 10
+  #   latency_ms: 400
+  #   upstream: { kind: decodo, username: sp123, password: xyz, protocol: socks5 }
+  #
+  # - name: iproyal-resi
+  #   exit_type: residential
+  #   sourcing: verified
+  #   price_per_gb: 3.0
+  #   fraud_score: 20
+  #   max_sticky_minutes: 1440
+  #   latency_ms: 450
+  #   upstream: { kind: iproyal, username: myuser, password: xyz }
+  #
+  # - name: netnut-resi
+  #   exit_type: residential
+  #   sourcing: verified
+  #   price_per_gb: 3.5
+  #   fraud_score: 15
+  #   max_sticky_minutes: 30
+  #   latency_ms: 350
+  #   upstream: { kind: netnut, username: myuser, password: xyz, endpoint: "gw-am.netnut.net:5959" }
+  #
+  # - name: rayobyte-resi
+  #   exit_type: residential
+  #   sourcing: verified
+  #   price_per_gb: 3.0
+  #   fraud_score: 20
+  #   max_sticky_minutes: 60
+  #   latency_ms: 450
+  #   upstream: { kind: rayobyte, username: myuser, password: xyz }
+  #
+  # - name: proxycheap-resi
+  #   exit_type: residential
+  #   sourcing: verified
+  #   price_per_gb: 2.5
+  #   fraud_score: 25
+  #   max_sticky_minutes: 30
+  #   latency_ms: 500
+  #   # Host and syntax are unverified: copy the endpoint from your dashboard.
+  #   upstream: { kind: proxy_cheap, username: myuser, password: xyz, endpoint: "host.from.dashboard:12345" }
+
 routes:
   - name: mautrix-whatsapp
     mode: sticky

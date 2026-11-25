@@ -14,6 +14,7 @@
 pub mod config;
 pub mod health;
 pub mod http;
+pub mod providers;
 pub mod select;
 pub mod server;
 pub mod session;

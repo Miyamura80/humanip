@@ -2,6 +2,7 @@
 //!
 //! Parsed from YAML with [`parse_yaml`], which also validates it.
 
+use crate::providers::{self, AdapterRequest, Protocol};
 use crate::Upstream;
 use humanip_core::policy::{ExitType, RoutePolicy, SourcingTier};
 use serde::Deserialize;
@@ -96,7 +97,9 @@ impl ProviderConfig {
     }
 }
 
-/// How to reach a provider. Usernames may contain `{session}` and `{country}`.
+/// How to reach a provider. `socks5` and `http` take a username template with
+/// `{session}` and `{country}`; the named kinds take only vendor credentials
+/// and build the username in [`providers`].
 #[derive(Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum UpstreamConfig {
@@ -111,6 +114,20 @@ pub enum UpstreamConfig {
         username: String,
         password: String,
     },
+    #[serde(rename = "brightdata")]
+    BrightData(providers::BrightData),
+    #[serde(rename = "oxylabs")]
+    Oxylabs(providers::Oxylabs),
+    #[serde(rename = "decodo")]
+    Decodo(providers::Decodo),
+    #[serde(rename = "iproyal")]
+    IpRoyal(providers::IpRoyal),
+    #[serde(rename = "netnut")]
+    NetNut(providers::NetNut),
+    #[serde(rename = "rayobyte")]
+    Rayobyte(providers::Rayobyte),
+    #[serde(rename = "proxy_cheap")]
+    ProxyCheap(providers::ProxyCheap),
 }
 
 impl fmt::Debug for UpstreamConfig {
@@ -129,17 +146,27 @@ impl fmt::Debug for UpstreamConfig {
                 .field("username", username)
                 .field("password", &"<redacted>")
                 .finish(),
+            UpstreamConfig::BrightData(c) => c.fmt(f),
+            UpstreamConfig::Oxylabs(c) => c.fmt(f),
+            UpstreamConfig::Decodo(c) => c.fmt(f),
+            UpstreamConfig::IpRoyal(c) => c.fmt(f),
+            UpstreamConfig::NetNut(c) => c.fmt(f),
+            UpstreamConfig::Rayobyte(c) => c.fmt(f),
+            UpstreamConfig::ProxyCheap(c) => c.fmt(f),
         }
     }
 }
 
 impl UpstreamConfig {
-    /// Replace `{session}` and `{country}` (lowercase, "any" when None) in username.
-    pub fn render(&self, session: &str, country: Option<&str>) -> Upstream {
-        let country = country.map_or_else(|| "any".to_string(), |c| c.to_ascii_lowercase());
-        let fill = |u: &str| {
-            u.replace("{session}", session)
-                .replace("{country}", &country)
+    /// Concrete upstream for one connection. `session` is the selector's
+    /// `hip...` id, `sticky` false for rotating routes (named kinds then omit
+    /// the session parameter), `country` uppercase ISO alpha-2 or None.
+    /// `socks5`/`http` fill `{session}` and `{country}` (lowercase, "any").
+    pub fn render(&self, session: &str, sticky: bool, country: Option<&str>) -> Upstream {
+        let req = AdapterRequest {
+            session,
+            sticky,
+            country,
         };
         match self {
             UpstreamConfig::Direct => Upstream::Direct,
@@ -147,20 +174,36 @@ impl UpstreamConfig {
                 addr,
                 username,
                 password,
-            } => Upstream::Socks5 {
-                addr: addr.clone(),
-                username: fill(username),
-                password: password.clone(),
-            },
+            } => providers::generic_template(Protocol::Socks5, addr, username, password, &req),
             UpstreamConfig::Http {
                 addr,
                 username,
                 password,
-            } => Upstream::Http {
-                addr: addr.clone(),
-                username: fill(username),
-                password: password.clone(),
-            },
+            } => providers::generic_template(Protocol::Http, addr, username, password, &req),
+            UpstreamConfig::BrightData(c) => providers::brightdata(c, &req),
+            UpstreamConfig::Oxylabs(c) => providers::oxylabs(c, &req),
+            UpstreamConfig::Decodo(c) => providers::decodo(c, &req),
+            UpstreamConfig::IpRoyal(c) => providers::iproyal(c, &req),
+            UpstreamConfig::NetNut(c) => providers::netnut(c, &req),
+            UpstreamConfig::Rayobyte(c) => providers::rayobyte(c, &req),
+            UpstreamConfig::ProxyCheap(c) => providers::proxy_cheap(c, &req),
+        }
+    }
+
+    /// Required named-adapter fields are non-empty and `endpoint` is host:port.
+    /// `direct`, `socks5` and `http` are not checked here.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            UpstreamConfig::Direct
+            | UpstreamConfig::Socks5 { .. }
+            | UpstreamConfig::Http { .. } => Ok(()),
+            UpstreamConfig::BrightData(c) => c.validate(),
+            UpstreamConfig::Oxylabs(c) => c.validate(),
+            UpstreamConfig::Decodo(c) => c.validate(),
+            UpstreamConfig::IpRoyal(c) => c.validate(),
+            UpstreamConfig::NetNut(c) => c.validate(),
+            UpstreamConfig::Rayobyte(c) => c.validate(),
+            UpstreamConfig::ProxyCheap(c) => c.validate(),
         }
     }
 }
@@ -235,6 +278,9 @@ fn validate(cfg: &GatewayConfig) -> Result<(), ConfigError> {
                 "provider {n}: country {c:?} must be 2 ASCII letters"
             )));
         }
+        p.upstream
+            .validate()
+            .map_err(|e| invalid(format!("provider {n}: {e}")))?;
         if matches!(p.upstream, UpstreamConfig::Direct) && !cfg.allow_direct {
             return Err(invalid(format!(
                 "provider {n}: direct upstream needs allow_direct: true"
@@ -304,18 +350,21 @@ routes:
         let c = parse_yaml(GOOD).unwrap();
         let up = &c.providers[0].upstream;
         assert_eq!(
-            up.render("hip1", Some("DE")),
+            up.render("hip1", true, Some("DE")),
             Upstream::Socks5 {
                 addr: "10.0.0.1:1080".into(),
                 username: "u-session-hip1-cc-de".into(),
                 password: "pw".into(),
             }
         );
-        match up.render("s", None) {
+        match up.render("s", false, None) {
             Upstream::Socks5 { username, .. } => assert_eq!(username, "u-session-s-cc-any"),
             other => panic!("{other:?}"),
         }
-        assert_eq!(UpstreamConfig::Direct.render("s", None), Upstream::Direct);
+        assert_eq!(
+            UpstreamConfig::Direct.render("s", true, None),
+            Upstream::Direct
+        );
     }
 
     #[test]
