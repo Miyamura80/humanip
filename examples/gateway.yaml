@@ -45,6 +45,11 @@ providers:
   # `protocol: socks5 | http` and `endpoint: host:port` for regional gateways.
   # Uncomment one and fill in the selection facts for your plan.
   #
+  # UNVERIFIED: these formats come from search summaries, not the vendor docs
+  # (which were unreachable when written). The gateway prints a warning at
+  # startup for each one. Check host, port and username syntax against your
+  # dashboard before sending real traffic.
+  #
   # - name: brightdata-resi
   #   exit_type: residential
   #   sourcing: verified

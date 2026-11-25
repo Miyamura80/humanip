@@ -302,6 +302,16 @@ pub async fn run(cfg: GatewayConfig) -> io::Result<()> {
         socks.local_addr()?,
         http.local_addr()?
     );
+    for p in &cfg.providers {
+        if let Some(kind) = p.upstream.unverified_adapter() {
+            eprintln!(
+                "humanip-gateway: WARNING provider {}: the {kind} adapter's host, port and username \
+                 format are unverified. Check them against your {kind} dashboard, or use a generic \
+                 socks5/http upstream with the exact values.",
+                p.name
+            );
+        }
+    }
     let gw = Gateway::new(cfg);
     // Drop idle-expired sticky pins once a minute.
     let sweeper = gw.clone();

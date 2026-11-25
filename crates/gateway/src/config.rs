@@ -158,6 +158,25 @@ impl fmt::Debug for UpstreamConfig {
 }
 
 impl UpstreamConfig {
+    /// Vendor name for named adapters whose host, port and username syntax
+    /// were taken from search summaries, not read from the vendor's docs.
+    /// The gateway warns at startup until these are verified against a real
+    /// account; generic `socks5`/`http`/`direct` upstreams return `None`.
+    pub fn unverified_adapter(&self) -> Option<&'static str> {
+        match self {
+            UpstreamConfig::Direct
+            | UpstreamConfig::Socks5 { .. }
+            | UpstreamConfig::Http { .. } => None,
+            UpstreamConfig::BrightData(_) => Some("brightdata"),
+            UpstreamConfig::Oxylabs(_) => Some("oxylabs"),
+            UpstreamConfig::Decodo(_) => Some("decodo"),
+            UpstreamConfig::IpRoyal(_) => Some("iproyal"),
+            UpstreamConfig::NetNut(_) => Some("netnut"),
+            UpstreamConfig::Rayobyte(_) => Some("rayobyte"),
+            UpstreamConfig::ProxyCheap(_) => Some("proxy_cheap"),
+        }
+    }
+
     /// Concrete upstream for one connection. `session` is the selector's
     /// `hip...` id, `sticky` false for rotating routes (named kinds then omit
     /// the session parameter), `country` uppercase ISO alpha-2 or None.
