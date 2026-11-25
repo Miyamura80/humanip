@@ -27,7 +27,8 @@
 		"exclude": [
 			"crates/assetgen/src/main.rs",
 			"crates/engine/src/scenario.rs",
-			"scripts/sync_agent_config.ts"
+			"scripts/sync_agent_config.ts",
+			"frontend/src/vendor/LiquidMetal.tsx"
 		]
 	},
 	"devDependencies": {

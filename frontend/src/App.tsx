@@ -1,18 +1,21 @@
 import { useEffect, useState } from "react";
 import "./styles/app.css";
 import "./styles/visual.css";
+import "./styles/systems.css";
 import { ACCOUNT } from "./lib/mock";
 import { usd } from "./lib/policy";
 import { Dashboard } from "./views/Dashboard";
 import { PriceLookup } from "./views/PriceLookup";
 import { Quickstart } from "./views/Quickstart";
 import { RouteBuilder } from "./views/RouteBuilder";
+import { Systems } from "./views/Systems";
 
 const VIEWS = {
 	routes: { label: "Routes", icon: "🗺️", el: <Dashboard /> },
 	new: { label: "New route", icon: "➕", el: <RouteBuilder /> },
 	lookup: { label: "Price lookup", icon: "💲", el: <PriceLookup /> },
 	connect: { label: "Connect", icon: "🔌", el: <Quickstart /> },
+	systems: { label: "Design systems", icon: "◐", el: <Systems /> },
 } as const;
 
 type ViewKey = keyof typeof VIEWS;

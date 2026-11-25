@@ -1,7 +1,7 @@
 {
 	"$schema": "https://knip.dev/schema-jsonc.json",
 	"ignoreWorkspaces": ["docs"],
-	"ignore": ["docs/source.config.ts"],
+	"ignore": ["docs/source.config.ts", "frontend/src/vendor/**"],
 	"ignoreDependencies": ["dependency-cruiser"],
 	"workspaces": {
 		".": {
