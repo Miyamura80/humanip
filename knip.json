@@ -8,6 +8,14 @@
 			"project": ["frontend/**/*.{ts,tsx}"],
 			"entry": ["frontend/src/main.tsx", "frontend/vite.config.ts"]
 		},
+		"apps/web-api": {
+			"project": ["src/**/*.ts", "test/**/*.ts"],
+			"entry": ["test/**/*.test.ts"]
+		},
+		"tools/fake-stripe": {
+			"project": ["src/**/*.ts", "test/**/*.ts"],
+			"entry": ["test/**/*.test.ts"]
+		},
 		"docs": {
 			"project": ["**/*.{ts,tsx}"],
 			"entry": ["app/**/page.tsx", "app/**/layout.tsx"]

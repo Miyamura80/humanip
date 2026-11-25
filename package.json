@@ -4,7 +4,9 @@
 	"version": "0.1.0",
 	"type": "module",
 	"workspaces": [
-		"docs"
+		"docs",
+		"apps/web-api",
+		"tools/fake-stripe"
 	],
 	"scripts": {
 		"dev": "vite frontend",

@@ -29,3 +29,6 @@ opencode.json
 
 # Agent session files
 .claude/scheduled_tasks.lock
+
+# Local dev stack state (scripts/dev-stack.sh)
+.stack/

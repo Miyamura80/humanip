@@ -1,0 +1,13 @@
+{
+	"name": "@humanip/fake-stripe",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"start": "bun run src/index.ts",
+		"test": "bun test"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.5"
+	}
+}
