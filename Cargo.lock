@@ -107,6 +107,7 @@ dependencies = [
  "engine",
  "humanip-billing",
  "humanip-core",
+ "humanip-ledger",
  "rustls",
  "serde",
  "serde-saphyr",
@@ -958,6 +959,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "humanip-core",
+ "humanip-ledger",
  "serde",
  "serde-saphyr",
  "thiserror 2.0.18",

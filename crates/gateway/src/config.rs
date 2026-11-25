@@ -280,6 +280,7 @@ fn validate(cfg: &GatewayConfig) -> Result<(), ConfigError> {
     if cfg.connect_timeout_ms == 0 {
         return Err(invalid("connect_timeout_ms must be positive"));
     }
+    humanip_core::abuse::validate_rules(&cfg.blocked_domains).map_err(invalid)?;
     if cfg.api_keys.is_empty() && cfg.accounts_db.is_none() {
         return Err(invalid("at least one api key (or accounts_db) is required"));
     }

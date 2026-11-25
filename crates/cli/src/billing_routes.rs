@@ -28,13 +28,27 @@ use serde_json::json;
 /// Gateway take rate on provider cost (5%).
 const TAKE_RATE: f64 = 0.05;
 
-/// INTEGRATION POINT: the store that webhook credits land in.
-///
-/// Until the ledger crate lands this is an in-memory store, so credits are
-/// lost on restart. Replace the body with the SQLite ledger (shared with the
-/// gateway) when `humanip-ledger` is ready.
+/// The store that webhook credits land in: the SQLite ledger at
+/// `HUMANIP_ACCOUNTS_DB` (the same file as the gateway's `accounts_db`; WAL
+/// mode makes two processes safe). Without it, an in-memory store is used and
+/// credits are lost on restart, which is only acceptable in development.
 pub fn billing_store() -> Arc<dyn AccountStore> {
-    Arc::new(MemoryAccounts::new(TAKE_RATE))
+    match std::env::var("HUMANIP_ACCOUNTS_DB")
+        .ok()
+        .filter(|p| !p.is_empty())
+    {
+        Some(path) => match humanip_ledger::SqliteAccounts::open(&path) {
+            Ok(store) => Arc::new(store),
+            Err(e) => {
+                tracing::error!(%path, error = %e, "cannot open HUMANIP_ACCOUNTS_DB; billing credits will not persist");
+                Arc::new(MemoryAccounts::new(TAKE_RATE))
+            }
+        },
+        None => {
+            tracing::warn!("HUMANIP_ACCOUNTS_DB not set; billing credits are kept in memory only");
+            Arc::new(MemoryAccounts::new(TAKE_RATE))
+        }
+    }
 }
 
 /// Billing settings, read from env by [`BillingConfig::from_env`].

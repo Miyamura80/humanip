@@ -421,11 +421,14 @@ async fn splice_forward<U: AsyncRead + AsyncWrite + Unpin>(
 pub fn accounts_for(cfg: &GatewayConfig) -> io::Result<Arc<dyn AccountStore>> {
     match &cfg.accounts_db {
         None => Ok(Arc::new(accounts_bridge::memory_from_config(cfg))),
-        // INTEGRATION: open the ledger crate's SQLite store here.
-        Some(path) => Err(io::Error::other(format!(
-            "accounts_db {path:?} is set, but the SQLite ledger is not wired into the gateway \
-             yet; remove accounts_db to use the in-memory dev store from api_keys"
-        ))),
+        Some(path) => {
+            if !cfg.api_keys.is_empty() {
+                tracing::warn!("accounts_db is set, so api_keys in the config are ignored");
+            }
+            let store = humanip_ledger::SqliteAccounts::open(path)
+                .map_err(|e| io::Error::other(format!("opening accounts_db {path:?}: {e}")))?;
+            Ok(Arc::new(store))
+        }
     }
 }
 
