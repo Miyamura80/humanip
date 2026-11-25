@@ -1,0 +1,48 @@
+# Example gateway config. Run with:
+#   cargo run -p humanip-gateway -- --config examples/gateway.yaml
+socks_listen: 127.0.0.1:1080
+http_listen: 127.0.0.1:8080
+connect_timeout_ms: 10000
+
+api_keys:
+  - name: alice
+    key: change-me
+
+# Each provider is a generic upstream. `{session}` in the username becomes a
+# stable id for sticky sessions (fresh per connection for rotating routes);
+# `{country}` becomes the route's country or "any".
+providers:
+  - name: netnut-isp
+    exit_type: isp
+    sourcing: verified
+    price_per_gb: 3.4
+    fraud_score: 12
+    max_sticky_minutes: 129600
+    latency_ms: 210
+    countries: [DE, US]
+    upstream:
+      kind: http
+      addr: gw.netnut.example:5959
+      username: "customer-sess-{session}-cc-{country}"
+      password: provider-password
+  - name: iproxy-mobile
+    exit_type: mobile
+    sourcing: verified
+    price_per_gb: 8.9
+    fraud_score: 5
+    max_sticky_minutes: 129600
+    latency_ms: 690
+    countries: [DE]
+    upstream:
+      kind: socks5
+      addr: de1.iproxy.example:1080
+      username: "{session}"
+      password: provider-password
+
+routes:
+  - name: mautrix-whatsapp
+    mode: sticky
+    sticky: { ttl: forever, on_pin_loss: fail_closed }
+    exit_types: [mobile, isp]
+    geo: { country: DE }
+    risk: 5

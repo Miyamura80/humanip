@@ -12,9 +12,11 @@
 
 Clients connect over plain **SOCKS5** or **HTTP CONNECT**, so no SDK is needed.
 
-> Status: early bootstrap. The routing rules (`crates/humanip-core`) and the
-> `quote` / route-config commands work today. The proxy data plane and
-> provider adapters are next, see [Roadmap](#roadmap).
+> Status: early. The routing rules (`crates/humanip-core`), the `quote` and
+> route-config commands, and the gateway data plane (`crates/gateway`: SOCKS5,
+> HTTP CONNECT, sticky sessions, generic upstream chaining, passive health)
+> work today. Named provider adapters, reputation checks and billing are next,
+> see [Roadmap](#roadmap).
 
 ## How it works
 
@@ -78,6 +80,16 @@ Validate a routes file:
 
 ```bash
 target/debug/appctl call validate_routes --args "{\"yaml\": $(jq -Rs . < examples/routes.yaml)}" --json
+```
+
+Run the gateway (edit providers and keys in the example first):
+
+```bash
+cargo run -p humanip-gateway -- --config examples/gateway.yaml
+```
+
+```bash
+curl -x "http://user-route_mautrix-whatsapp:change-me@127.0.0.1:8080" https://web.whatsapp.com
 ```
 
 Run the console (mock data):
@@ -150,19 +162,22 @@ continues the previous value.
 | Path | What |
 |---|---|
 | `crates/humanip-core` | Routing rules, no I/O: policy schema, risk resolution, Pareto selection, username parsing |
+| `crates/gateway` | Data plane: SOCKS5 + HTTP CONNECT listeners, auth, sticky pin table, exit selection, upstream chaining, passive health |
 | `crates/engine` | Typed commands (`quote`, `validate_routes`, `route_schema`, `parse_proxy_user`, ...) shared by CLI and HTTP |
 | `crates/cli` | `appctl` binary: CLI + HTTP API |
 | `frontend/` | Console mockups (React/Vite) and design-system exploration at `#/systems` |
 | `examples/routes.yaml` | Example routes |
+| `examples/gateway.yaml` | Example gateway: keys, providers (generic SOCKS5/HTTP upstreams), routes |
 
 ## Roadmap
 
-1. **Data plane**: SOCKS5 and HTTP CONNECT listeners, username auth, upstream
-   dialing, session table for sticky pins.
-2. **Provider adapters**: residential majors, ISP/static, mobile/eSIM, generic
-   upstream list, plus a mock adapter for tests.
-3. **Health**: passive scoring from block pages, CAPTCHAs, 403s and TLS resets;
-   pin-loss detection and webhooks.
+1. ~~**Data plane**~~: SOCKS5 and HTTP CONNECT listeners, username auth,
+   upstream chaining, sticky pin table, fail-closed pin loss. Done.
+2. **Provider adapters**: named adapters for residential majors, ISP/static and
+   mobile/eSIM on top of the generic upstream (done), plus plain-HTTP forward
+   proxying (today only CONNECT is supported).
+3. **Health**: passive transport scoring is done; next are client-reported
+   403/CAPTCHA signals, pin-loss webhooks and a status API.
 4. **Reputation**: IPQS / Scamalytics checks with caching.
 5. **Billing**: prepaid credits (Stripe, USDC), per-key spend caps, domain
    blocklist with KYC tiers.
