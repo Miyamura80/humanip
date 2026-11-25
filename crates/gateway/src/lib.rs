@@ -76,6 +76,16 @@ pub enum Upstream {
     },
 }
 
+/// Observed share of requests that succeed for a (domain, provider) pair.
+/// Implemented by [`health::HealthTracker`]; consumed by [`select`].
+pub trait SuccessSource: Send + Sync {
+    /// `None` when there is not enough data yet.
+    fn success_rate(&self, domain: &str, provider: &str) -> Option<f64>;
+}
+
+/// Success rate assumed for a pair with no data.
+pub const NEUTRAL_SUCCESS: f64 = 0.8;
+
 #[cfg(test)]
 mod tests {
     use super::*;
