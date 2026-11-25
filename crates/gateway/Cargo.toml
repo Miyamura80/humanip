@@ -1,0 +1,19 @@
+[package]
+name = "humanip-gateway"
+version = "0.1.0"
+edition = "2021"
+description = "humanip data plane: SOCKS5 and HTTP CONNECT listeners, auth, sticky sessions, exit selection, upstream dialing."
+license = "MIT"
+
+[[bin]]
+name = "humanip-gateway"
+path = "src/main.rs"
+
+[dependencies]
+humanip-core = { path = "../humanip-core" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "time", "sync"] }
+serde = { version = "1", features = ["derive"] }
+serde-saphyr = { version = "=2.0.0", default-features = false, features = ["deserialize"] }
+thiserror = "2"
+tracing = "0.1"
+base64 = "0.22"

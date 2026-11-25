@@ -905,6 +905,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "humanip-gateway"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "humanip-core",
+ "serde",
+ "serde-saphyr",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "hyper"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
