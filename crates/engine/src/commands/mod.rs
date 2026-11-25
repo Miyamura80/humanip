@@ -44,7 +44,9 @@ use std::time::Instant;
 mod http_request;
 mod list_dir;
 mod ping;
+mod quote;
 mod read_file;
+mod routes;
 mod system_info;
 mod write_file;
 

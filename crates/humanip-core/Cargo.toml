@@ -1,0 +1,12 @@
+[package]
+name = "humanip-core"
+version = "0.1.0"
+edition = "2021"
+description = "Pure routing rules for humanip: route policy schema, risk resolution, Pareto selection, proxy-username parsing. No I/O."
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde-saphyr = { version = "=2.0.0", default-features = false, features = ["deserialize"] }
+schemars = "0.8"
+thiserror = "2"

@@ -1,0 +1,39 @@
+# Example humanip routes. Validate with:
+#   appctl call validate_routes --args "{\"yaml\": $(jq -Rs . < examples/routes.yaml)}" --json
+routes:
+  # A Matrix bridge to WhatsApp: one mobile IP for the life of the bridge,
+  # in the account's home region. If the IP dies, stop and alert a human.
+  - name: mautrix-whatsapp
+    mode: sticky
+    sticky:
+      ttl: forever
+      on_pin_loss: fail_closed
+    exit_types: [mobile, isp]
+    geo:
+      country: DE
+      city: Berlin
+      asn: 3320
+      match_account: true
+    risk: 5
+    target_url: https://web.whatsapp.com
+    spend_cap_usd: 25
+    alert_webhook: https://ops.example.com/hooks/humanip
+
+  # Computer-use / browser agents: same exit for one session, then released.
+  - name: agent-browser
+    mode: sticky
+    sticky:
+      ttl: session
+      on_pin_loss: same_city
+    exit_types: [residential]
+    geo:
+      country: US
+    risk: 40
+    reliability_floor: 0.9
+
+  # Price scraping: fresh exits, cheapest that still works.
+  - name: price-scrape
+    mode: rotating
+    exit_types: [residential]
+    risk: 70
+    spend_cap_usd: 600

@@ -1,159 +1,179 @@
-# Rust-Template
+# humanip
 
-<p align="center">
-  <img src="media/banner.png" alt="banner" width="400">
-</p>
+**A proxy router that sends each client out through a non-datacenter exit
+(residential, ISP or mobile/eSIM), with a per-route policy.**
 
-<p align="center">
-<b>agent-ready Rust server + CLI template</b>
-</p>
+- **Sticky** routes keep one IP for a session (browser and computer-use agents)
+  or for months (mautrix bridges), and fail closed if that IP dies.
+- **Rotating** routes take a fresh exit per request.
+- Every route picks the cheapest exit that clears a **reliability floor**
+  (95% by default). A 0-100 **risk dial** trades IP reputation, exit class,
+  provider sourcing and sticky guarantees for cost.
 
-<p align="center">
-  <a href="#key-features">Key Features</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#configuration">Configuration</a> •
-  <a href="#agent-skills">Agent Skills</a> •
-  <a href="#credits">Credits</a>
-</p>
+Clients connect over plain **SOCKS5** or **HTTP CONNECT**, so no SDK is needed.
 
-<p align="center">
-  <img alt="Rust Version" src="https://img.shields.io/badge/rust-1.75%2B-blue?logo=rust">
-  <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/Miyamura80/Rust-Template">
-  <img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/Miyamura80/Rust-Template/rust_checks.yaml?branch=main">
-</p>
+> Status: early bootstrap. The routing rules (`crates/humanip-core`) and the
+> `quote` / route-config commands work today. The proxy data plane and
+> provider adapters are next, see [Roadmap](#roadmap).
 
----
-
-## Key Features
-
-A Rust application-server template: **write your business logic once as a typed
-`Command`, and expose it over multiple transports** - a CLI, an HTTP API, and
-(later) MCP - all from one shared core. An optional React/Vite frontend talks to
-the API over `fetch`.
-
-| Feature | Tech Stack |
-|---------|:----------:|
-| **Core** | `engine` crate - typed async `Command` registry (no transport deps) |
-| **CLI + API** | `appctl` binary - `call` / `serve` / `doctor` / `probe` / `run-scenario` |
-| **HTTP API** | `axum` + `tower` (CORS, tracing, timeout, request-id) |
-| **Contract** | `schemars` JSON Schema shared across CLI, API, and future MCP |
-| **Config** | `app-config` crate (YAML + `APP__` env overrides + sanitizer) |
-| **Frontend** (optional) | React + TypeScript + Vite, `fetch`-based API client |
-| **Logging** | `tracing` + redaction layer |
-| **Packaging** | `cargo-dist` (binaries + installers) and a server `Dockerfile` |
-| **Package Manager** | Bun |
-| **Formatting** | Biome + `cargo fmt` |
-
-## Architecture
+## How it works
 
 ```
-        ┌────────────────────────────────────────────────────────────┐
-        │  TRANSPORTS  (crates/cli - one binary `appctl`, subcommands) │
-        │                                                              │
-        │   appctl call <cmd> --args '{...}'   one-shot JSON I/O       │
-        │   appctl serve --port 8080           axum HTTP API           │
-        │   appctl doctor | probe | run-scenario                       │
-        │   appctl mcp                          (stub - see docs/mcp.md)│
-        └───────────────┬─────────────────────────┬───────────────────┘
-                        │                          │
-        optional bun/React frontend               │  same registry
-        ────────── HTTP/fetch ─────────▶ serve ────┤  + typed contract
-                                                   │
-        ┌──────────────────────────────────────────▼───────────────────┐
-        │  crates/engine  - the service core (no transport deps)         │
-        │    Command trait:  Input: JsonSchema + Deserialize             │
-        │                    Output: JsonSchema + Serialize              │
-        │    CommandRegistry (inventory self-registration) + schema()    │
-        │    Ctx (per-request): fs / network capabilities, request_id    │
-        └───────────────────────────┬───────────────────────────────────┘
-                                     │
-        ┌────────────────────────────▼──────────────────────────────────┐
-        │  crates/config (app-config) - AppConfig / FrontendConfig        │
-        │                 YAML + APP__ env overrides + secret sanitizer   │
-        └─────────────────────────────────────────────────────────────────┘
+  browser agent        mautrix bridge         scraper
+  (sticky/session)     (sticky/forever)       (rotating)
+        |                     |                    |
+        +---------- SOCKS5 :1080 / HTTP :8080 -----+
+                              |
+               user-route_X-session_Y-risk_N:KEY      <- settings ride in
+                              |                          the proxy username
+   +--------------------------v---------------------------+
+   | humanip gateway (Rust, open source)                  |
+   |                                                      |
+   |  route policy --> risk limits --> eligible offers     |
+   |                                       |              |
+   |               cost/reliability frontier (Pareto)     |
+   |                                       |              |
+   |   default pick = cheapest on frontier >= floor        |
+   |   sticky sessions pick once, never switch mid-session |
+   |                                                      |
+   |  passive health (403/CAPTCHA/TLS reset) --+          |
+   |  IP reputation (IPQS / Scamalytics) ------+--> live  |
+   +-----------+-------------+-------------+-----+  DB    |
+               |             |             |     (closed) |
+          residential      ISP static   mobile/eSIM   generic
+          providers        providers    providers     SOCKS/HTTP
 ```
 
-- `crates/engine/` - all real logic; a typed, async `Command` registry with
-  self-registration (`inventory`). No CLI/HTTP dependency.
-- `crates/cli/` - the `appctl` binary. The `cli` and `http-api` surfaces are
-  cargo features (both on by default) so `appctl init` can prune one.
-- `crates/config/` - `AppConfig` (with secrets) vs the sanitized
-  `FrontendConfig` served over HTTP. The sanitizer is a security boundary.
-- `crates/assetgen/` - `asset-gen` binary for `make banner` / `make logo`.
-- `frontend/` - optional React/Vite visualization app (`fetch` API client).
-- `docs/` - Next.js docs site.
+### Why a frontier
 
-## Quick Start
+Two numbers matter per target site: what a *successful* GB costs (price
+including the 5% fee, divided by success rate) and how often it works. An exit
+that is both pricier and less reliable than another is never picked. Of the
+rest, humanip takes the cheapest one that works at least 95% of the time on
+that site. If none clears the floor it takes the most reliable one and says so.
+
+For the WhatsApp bridge in the sample data, Rayobyte is cheapest but works 93%
+of the time, so NetNut (96%) is the default pick.
+
+## Quick start
 
 ```bash
-# 1. Onboard the template into a real project (dry-run first, then apply)
-make init PROFILE=cli+server DRY_RUN=1
-make init PROFILE=cli+server
-
-# 2. Build + test the workspace
-cargo build --workspace
 cargo test --workspace
-
-# 3. Run the HTTP API
-make run                    # = appctl serve   (GET /healthz, /api/v1/commands)
-
-# 4. Call a command headlessly
-cargo run -p appctl -- call ping --json
-cargo run -p appctl -- call read_file --args '{"path": "/etc/hostname"}' --json
-
-# 5. (optional) Run the frontend against the API
-bun install
-make dev                    # Vite dev server; /api is proxied to appctl serve
+cargo build -p appctl
 ```
 
-Scaffold a new command with `make new name=fetch_url` (or `appctl new
-fetch_url`) - it self-registers, so it's immediately callable over the CLI and
-the API.
+Quote exits for a site:
 
-## Asset Generation
+```bash
+target/debug/appctl call quote --args '{"url": "https://web.whatsapp.com", "exit_types": ["mobile", "isp"]}' --json
+```
 
-- `make logo` / `make banner` regenerate branding assets via the Rust
-  `asset-gen` CLI (requires `APP__GEMINI_API_KEY`, set via `.env`).
-- Logos/icons land under `docs/public/`, the banner under `media/banner.png`.
+Parse a proxy username:
 
-## Configuration
+```bash
+target/debug/appctl call parse_proxy_user --args '{"username": "user-route_agent-browser-session_r42-risk_40"}' --json
+```
 
-Configuration is handled in Rust and exposed to the frontend over HTTP.
+Validate a routes file:
 
-- **Rust**: `app_config::get_config()` (full) / `app_config::get_frontend_config()` (sanitized).
-- **Frontend**: `useConfig()` hook → `GET /api/v1/config` (never carries secrets).
+```bash
+target/debug/appctl call validate_routes --args "{\"yaml\": $(jq -Rs . < examples/routes.yaml)}" --json
+```
 
-### Environment Variables
-Prefix variables with `APP__` to override YAML settings (e.g.,
-`APP__MODEL_NAME=gpt-4`, `APP__SERVER__PORT=9090`). Point a deployed binary at
-its config file with `APP_CONFIG_PATH`.
+Run the console (mock data):
 
-## Agent Skills
+```bash
+bun install && make dev
+```
 
-Claude Code skills live in `.claude/skills/`. Invoke them with `/skill-name`.
+## Routes config
 
-| Skill | Description |
-|-------|-------------|
-| `/update-backend` | Guide for Rust backend changes - engine commands, traits, CLI/API, testing |
-| `/onboarding` | Turn this template into a real project (interview → dry-run → prune) |
-| `/code-quality` | Run formatting and linting checks (Biome + Clippy) |
-| `/prd` | Generate a Product Requirements Document for a new feature |
-| `/ralph` | Convert a PRD to `prd.json` for the Ralph autonomous agent |
-| `/cleanup` | Git branch hygiene - delete merged branches, prune stale refs, sync deps |
+Routes live in a YAML file. The full schema is exported by
+`appctl call route_schema --json`. See [`examples/routes.yaml`](examples/routes.yaml).
 
-## Credits
+```yaml
+routes:
+  - name: mautrix-whatsapp
+    mode: sticky
+    sticky: { ttl: forever, on_pin_loss: fail_closed }
+    exit_types: [mobile, isp]
+    geo: { country: DE, city: Berlin, asn: 3320, match_account: true }
+    risk: 5
+    reliability_floor: 0.95
+    spend_cap_usd: 25
+    alert_webhook: https://ops.example.com/hooks/humanip
+```
 
-This software uses the following tools:
-- [axum](https://github.com/tokio-rs/axum)
-- [Bun](https://bun.sh/)
-- [Biome](https://biomejs.dev/)
-- [Rust](https://www.rust-lang.org/)
+| Field | Values | Default |
+|---|---|---|
+| `mode` | `sticky`, `rotating` | `sticky` |
+| `sticky.ttl` | `session` (30 min idle), `{hours: N}`, `{days: N}`, `forever` | `session` |
+| `sticky.on_pin_loss` | `fail_closed`, `same_asn`, `same_city`, `same_country`, `any` | `fail_closed` |
+| `exit_types` | `mobile`, `isp`, `residential` (never datacenter) | `[residential]` |
+| `risk` | 0-100 | 20 |
+| `reliability_floor` | 0.5-1.0 | 0.95 |
+| `overrides` | `max_fraud_score`, `allowed_exit_types`, `sourcing_tiers`, `min_sticky_minutes` | none |
 
-## About the Core Contributors
+### What the risk dial controls
 
-<a href="https://github.com/Miyamura80/Rust-Template/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=Miyamura80/Rust-Template" />
-</a>
+| Risk | Max fraud score | Exit classes | Provider sourcing | Sticky guarantee |
+|---|---|---|---|---|
+| 0-29 | 15-32 | preferred only | verified | 1 day |
+| 30-59 | 33-50 | + one step cheaper | verified (+ standard from 40) | 30 min |
+| 60-100 | 51-75 | down to residential | + unverified from 75 | best effort from 70 |
 
-Made with [contrib.rocks](https://contrib.rocks).
+A sticky route's own pin length always applies on top of this.
+
+## Proxy username
+
+Any SOCKS5/HTTP client can pass settings in the username. The password is your
+API key.
+
+```
+user-route_agent-browser-session_r42-risk_40-country_us-exit_mobile-target_linkedin.com
+```
+
+| Key | Meaning |
+|---|---|
+| `route_` | inherit a saved route |
+| `session_` | sticky key: same value, same exit. Omit for rotating |
+| `risk_` | 0-100, overrides the route |
+| `country_` `city_` `asn_` | geo constraints |
+| `exit_` | `mobile`, `isp` or `residential` |
+| `target_` | hint for the cheapest-exit lookup (otherwise read from CONNECT/SNI) |
+
+Values may contain dashes: a token that does not start with a known key
+continues the previous value.
+
+## Repository layout
+
+| Path | What |
+|---|---|
+| `crates/humanip-core` | Routing rules, no I/O: policy schema, risk resolution, Pareto selection, username parsing |
+| `crates/engine` | Typed commands (`quote`, `validate_routes`, `route_schema`, `parse_proxy_user`, ...) shared by CLI and HTTP |
+| `crates/cli` | `appctl` binary: CLI + HTTP API |
+| `frontend/` | Console mockups (React/Vite) and design-system exploration at `#/systems` |
+| `examples/routes.yaml` | Example routes |
+
+## Roadmap
+
+1. **Data plane**: SOCKS5 and HTTP CONNECT listeners, username auth, upstream
+   dialing, session table for sticky pins.
+2. **Provider adapters**: residential majors, ISP/static, mobile/eSIM, generic
+   upstream list, plus a mock adapter for tests.
+3. **Health**: passive scoring from block pages, CAPTCHAs, 403s and TLS resets;
+   pin-loss detection and webhooks.
+4. **Reputation**: IPQS / Scamalytics checks with caching.
+5. **Billing**: prepaid credits (Stripe, USDC), per-key spend caps, domain
+   blocklist with KYC tiers.
+
+## Business model
+
+The router is open source. Hosted humanip holds the provider accounts and bills
+provider cost plus a 5% fee. The live price, success-rate and reputation
+database that powers `quote` in production is a separate, closed service; this
+repo ships an illustrative sample catalog.
+
+## License
+
+MIT
