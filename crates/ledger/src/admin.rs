@@ -18,6 +18,15 @@ pub struct AccountSummary {
 /// Random ids are 48 bits; on the off chance of a collision, try again.
 const ID_ATTEMPTS: usize = 4;
 
+fn summary_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AccountSummary> {
+    Ok(AccountSummary {
+        account_id: r.get(0)?,
+        name: r.get(1)?,
+        balance_micro: r.get(2)?,
+        created_at: r.get(3)?,
+    })
+}
+
 fn is_constraint(e: &rusqlite::Error) -> bool {
     e.sqlite_error_code() == Some(ErrorCode::ConstraintViolation)
 }
@@ -184,6 +193,20 @@ impl SqliteAccounts {
             .map_err(storage)
     }
 
+    /// One account by id, or `NotFound`.
+    pub fn account(&self, account_id: &str) -> Result<AccountSummary, StoreError> {
+        self.lock()
+            .query_row(
+                "SELECT account_id, name, balance_micro, created_at FROM accounts
+                 WHERE account_id = ?1",
+                [account_id],
+                summary_from_row,
+            )
+            .optional()
+            .map_err(storage)?
+            .ok_or_else(|| StoreError::NotFound(account_id.into()))
+    }
+
     /// All accounts, oldest first.
     pub fn list_accounts(&self) -> Result<Vec<AccountSummary>, StoreError> {
         let conn = self.lock();
@@ -193,16 +216,7 @@ impl SqliteAccounts {
                  ORDER BY created_at, account_id",
             )
             .map_err(storage)?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok(AccountSummary {
-                    account_id: r.get(0)?,
-                    name: r.get(1)?,
-                    balance_micro: r.get(2)?,
-                    created_at: r.get(3)?,
-                })
-            })
-            .map_err(storage)?;
+        let rows = stmt.query_map([], summary_from_row).map_err(storage)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(storage)
     }
 }

@@ -211,3 +211,17 @@ fn oversized_byte_counts_are_rejected_without_charging() {
     assert!(db.record_usage(&ev(&key, u64::MAX)).is_err());
     assert_eq!(db.balance(&a).unwrap(), USD);
 }
+
+#[test]
+fn account_lookup_reports_name_and_balance() {
+    let db = SqliteAccounts::open_in_memory().unwrap();
+    let (a, _, _) = funded(&db, 3);
+    let acct = db.account(&a).unwrap();
+    assert_eq!(acct.account_id, a);
+    assert_eq!(acct.name, "acme");
+    assert_eq!(acct.balance_micro, 3 * USD);
+    assert_eq!(
+        db.account("acct_missing"),
+        Err(StoreError::NotFound("acct_missing".into()))
+    );
+}

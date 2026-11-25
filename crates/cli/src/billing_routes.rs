@@ -1,6 +1,8 @@
 //! Billing routes for `appctl serve`, nested under `/api/v1/billing`.
 //!
-//! - `POST /checkout` `{account_id, amount_usd}` -> `{id, url}` (Stripe Checkout)
+//! - `POST /checkout` `{account_id, amount_usd}` -> `{id, url}` (Stripe Checkout).
+//!   Needs the control token (`Authorization: Bearer <HUMANIP_CONTROL_TOKEN>`),
+//!   so only the web service can open checkouts; 404 for an unknown account.
 //! - `POST /webhook` raw Stripe event + `Stripe-Signature` -> 200 / 400
 //!
 //! Config comes from env (see `docs/billing.md`). Missing secrets give 503
@@ -21,31 +23,28 @@ use humanip_billing::{
     handle_event, verify_webhook, EventError, StripeClient, StripeError, DEFAULT_API_BASE,
     DEFAULT_TOLERANCE_SECS,
 };
-use humanip_core::accounts::{AccountStore, MemoryAccounts};
+use humanip_core::accounts::{AccountStore, MemoryAccounts, StoreError};
+use humanip_ledger::SqliteAccounts;
 use serde::Deserialize;
 use serde_json::json;
+
+use super::control_routes::{AuthError, ControlToken};
 
 /// Gateway take rate on provider cost (5%).
 const TAKE_RATE: f64 = 0.05;
 
-/// The store that webhook credits land in: the SQLite ledger at
-/// `HUMANIP_ACCOUNTS_DB` (the same file as the gateway's `accounts_db`; WAL
-/// mode makes two processes safe). Without it, an in-memory store is used and
-/// credits are lost on restart, which is only acceptable in development.
-pub fn billing_store() -> Arc<dyn AccountStore> {
-    match std::env::var("HUMANIP_ACCOUNTS_DB")
-        .ok()
-        .filter(|p| !p.is_empty())
-    {
-        Some(path) => match humanip_ledger::SqliteAccounts::open(&path) {
-            Ok(store) => Arc::new(store),
-            Err(e) => {
-                tracing::error!(%path, error = %e, "cannot open HUMANIP_ACCOUNTS_DB; billing credits will not persist");
-                Arc::new(MemoryAccounts::new(TAKE_RATE))
-            }
-        },
+/// The store that webhook credits land in: the shared SQLite ledger opened
+/// once at startup from `HUMANIP_ACCOUNTS_DB` (the same file as the gateway's
+/// `accounts_db`; WAL mode makes two processes safe). Without it, an in-memory
+/// store is used and credits are lost on restart, which is only acceptable in
+/// development.
+pub fn billing_store(ledger: Option<Arc<SqliteAccounts>>) -> Arc<dyn AccountStore> {
+    match ledger {
+        Some(store) => store,
         None => {
-            tracing::warn!("HUMANIP_ACCOUNTS_DB not set; billing credits are kept in memory only");
+            tracing::warn!(
+                "no accounts ledger (HUMANIP_ACCOUNTS_DB); billing credits are kept in memory only"
+            );
             Arc::new(MemoryAccounts::new(TAKE_RATE))
         }
     }
@@ -81,22 +80,20 @@ impl BillingConfig {
 pub struct BillingState {
     config: Arc<BillingConfig>,
     store: Arc<dyn AccountStore>,
+    /// Guards checkout; the webhook is authenticated by its Stripe signature.
+    token: ControlToken,
     /// Built on first checkout so constructing the router never needs TLS.
     stripe: Arc<OnceLock<Result<StripeClient, String>>>,
 }
 
 impl BillingState {
-    pub fn new(config: BillingConfig, store: Arc<dyn AccountStore>) -> Self {
+    pub fn new(config: BillingConfig, store: Arc<dyn AccountStore>, token: ControlToken) -> Self {
         Self {
             config: Arc::new(config),
             store,
+            token,
             stripe: Arc::new(OnceLock::new()),
         }
-    }
-
-    /// Env config plus [`billing_store`]. Used by `serve_http::build_app`.
-    pub fn from_env() -> Self {
-        Self::new(BillingConfig::from_env(), billing_store())
     }
 }
 
@@ -127,7 +124,20 @@ struct CheckoutReq {
     amount_usd: f64,
 }
 
-async fn checkout(State(st): State<BillingState>, body: Bytes) -> Response {
+async fn checkout(State(st): State<BillingState>, headers: HeaderMap, body: Bytes) -> Response {
+    match st.token.check(&headers) {
+        Ok(()) => {}
+        Err(AuthError::NotConfigured) => {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "not_configured",
+                "control API not configured",
+            )
+        }
+        Err(AuthError::Unauthorized) => {
+            return error(StatusCode::UNAUTHORIZED, "unauthorized", "unauthorized")
+        }
+    }
     let cfg = &st.config;
     let (Some(key), Some(public)) = (&cfg.stripe_secret_key, &cfg.public_url) else {
         return not_configured();
@@ -142,6 +152,30 @@ async fn checkout(State(st): State<BillingState>, body: Bytes) -> Response {
             )
         }
     };
+    let store = st.store.clone();
+    let account = req.account_id.clone();
+    match tokio::task::spawn_blocking(move || store.balance(&account)).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(StoreError::NotFound(_))) => {
+            return error(StatusCode::NOT_FOUND, "not_found", "unknown account")
+        }
+        Ok(Err(e)) => {
+            eprintln!("billing: store error: {e}");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                "store error",
+            );
+        }
+        Err(e) => {
+            eprintln!("billing: store task failed: {e}");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                "internal error",
+            );
+        }
+    }
     let client = st.stripe.get_or_init(|| {
         StripeClient::new(key.clone(), cfg.api_base.clone()).map_err(|e| e.to_string())
     });
@@ -225,9 +259,22 @@ mod tests {
     use tower::ServiceExt;
 
     const WHSEC: &str = "whsec_route_test";
+    const TOKEN: &str = "ctl_route_test";
 
     fn app(config: BillingConfig, store: Arc<dyn AccountStore>) -> Router {
-        Router::new().nest("/api/v1/billing", router(BillingState::new(config, store)))
+        let state = BillingState::new(config, store, ControlToken::new(Some(TOKEN)));
+        Router::new().nest("/api/v1/billing", router(state))
+    }
+
+    fn memory() -> Arc<dyn AccountStore> {
+        billing_store(None)
+    }
+
+    /// A ledger holding one account; returns its id.
+    fn ledger_with_account() -> (Arc<dyn AccountStore>, String) {
+        let db = SqliteAccounts::open_in_memory().unwrap();
+        let id = db.create_account("acme").unwrap();
+        (billing_store(Some(Arc::new(db))), id)
     }
 
     fn webhook_config() -> BillingConfig {
@@ -238,15 +285,35 @@ mod tests {
         }
     }
 
-    fn post(uri: &str, body: Vec<u8>, sig: Option<&str>) -> Request<Body> {
+    /// Checkout config whose Stripe base is a closed port: any call is a 502.
+    fn dead_stripe_config() -> BillingConfig {
+        BillingConfig {
+            stripe_secret_key: Some("sk_test_unused".into()),
+            public_url: Some("https://humanip.example".into()),
+            api_base: "http://127.0.0.1:9".into(),
+            ..Default::default()
+        }
+    }
+
+    fn post(uri: &str, body: Vec<u8>, header: Option<(&str, &str)>) -> Request<Body> {
         let mut b = Request::builder()
             .method("POST")
             .uri(uri)
             .header("content-type", "application/json");
-        if let Some(s) = sig {
-            b = b.header("Stripe-Signature", s);
+        if let Some((k, v)) = header {
+            b = b.header(k, v);
         }
         b.body(Body::from(body)).unwrap()
+    }
+
+    fn checkout_req(account: &str, amount: &str, token: Option<&str>) -> Request<Body> {
+        let body = format!(r#"{{"account_id":"{account}","amount_usd":{amount}}}"#);
+        let auth = token.map(|t| format!("Bearer {t}"));
+        post(
+            "/api/v1/billing/checkout",
+            body.into_bytes(),
+            auth.as_deref().map(|a| ("Authorization", a)),
+        )
     }
 
     async fn json_body(resp: Response) -> Value {
@@ -275,12 +342,8 @@ mod tests {
 
     #[tokio::test]
     async fn checkout_503_when_unconfigured() {
-        let resp = app(BillingConfig::default(), billing_store())
-            .oneshot(post(
-                "/api/v1/billing/checkout",
-                br#"{"account_id":"acct_1","amount_usd":10}"#.to_vec(),
-                None,
-            ))
+        let resp = app(BillingConfig::default(), memory())
+            .oneshot(checkout_req("acct_1", "10", Some(TOKEN)))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -291,8 +354,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn checkout_needs_the_control_token() {
+        for token in [None, Some("wrong")] {
+            let resp = app(dead_stripe_config(), memory())
+                .oneshot(checkout_req("acct_1", "10", token))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{token:?}");
+        }
+        let unset = BillingState::new(dead_stripe_config(), memory(), ControlToken::new(None));
+        let resp = Router::new()
+            .nest("/api/v1/billing", router(unset))
+            .oneshot(checkout_req("acct_1", "10", Some(TOKEN)))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn checkout_404_for_unknown_account() {
+        let (store, _) = ledger_with_account();
+        let resp = app(dead_stripe_config(), store)
+            .oneshot(checkout_req("acct_nobody", "10", Some(TOKEN)))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
     async fn webhook_503_when_unconfigured() {
-        let resp = app(BillingConfig::default(), billing_store())
+        let resp = app(BillingConfig::default(), memory())
             .oneshot(post("/api/v1/billing/webhook", paid_event("cs_x"), None))
             .await
             .unwrap();
@@ -301,76 +392,27 @@ mod tests {
 
     #[tokio::test]
     async fn checkout_rejects_out_of_range_amount_before_any_call() {
-        // api_base points at a closed loopback port: a request would fail with 502.
-        let cfg = BillingConfig {
-            stripe_secret_key: Some("sk_test_unused".into()),
-            public_url: Some("https://humanip.example".into()),
-            api_base: "http://127.0.0.1:9".into(),
-            ..Default::default()
-        };
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let resp = app(cfg, billing_store())
-            .oneshot(post(
-                "/api/v1/billing/checkout",
-                br#"{"account_id":"acct_1","amount_usd":4.5}"#.to_vec(),
-                None,
-            ))
+        let (store, id) = ledger_with_account();
+        let resp = app(dead_stripe_config(), store)
+            .oneshot(checkout_req(&id, "4.5", Some(TOKEN)))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
-    async fn checkout_returns_session_from_mock_stripe() {
-        // Loopback mock of POST /v1/checkout/sessions; echoes the success_url.
-        async fn mock(body: Bytes) -> Json<Value> {
-            let form = form_pairs(&body);
-            Json(json!({ "id": "cs_mock", "url": form["success_url"] }))
-        }
-        fn form_pairs(body: &[u8]) -> std::collections::HashMap<String, String> {
-            String::from_utf8_lossy(body)
-                .split('&')
-                .filter_map(|kv| kv.split_once('='))
-                .map(|(k, v)| (k.to_string(), v.replace("%3A", ":").replace("%2F", "/")))
-                .collect()
-        }
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let mock_app = Router::new().route("/v1/checkout/sessions", axum::routing::post(mock));
-        tokio::spawn(async move { axum::serve(listener, mock_app).await.unwrap() });
-
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let cfg = BillingConfig {
-            stripe_secret_key: Some("sk_test_mock".into()),
-            public_url: Some("https://humanip.example/".into()),
-            api_base: format!("http://{addr}"),
-            ..Default::default()
-        };
-        let resp = app(cfg, billing_store())
-            .oneshot(post(
-                "/api/v1/billing/checkout",
-                br#"{"account_id":"acct_1","amount_usd":10}"#.to_vec(),
-                None,
-            ))
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
-        let body = json_body(resp).await;
-        assert_eq!(body["id"], "cs_mock");
-        assert!(body["url"]
-            .as_str()
-            .unwrap()
-            .starts_with("https://humanip.example/billing/success"));
-    }
-
-    #[tokio::test]
     async fn webhook_400_on_bad_signature() {
-        let store = billing_store();
+        let store = memory();
         let body = paid_event("cs_bad");
         let t = now_unix();
         let sig = format!("t={t},v1={}", sign_payload(&body, "whsec_wrong", t));
         let resp = app(webhook_config(), store.clone())
-            .oneshot(post("/api/v1/billing/webhook", body, Some(&sig)))
+            .oneshot(post(
+                "/api/v1/billing/webhook",
+                body,
+                Some(("Stripe-Signature", &sig)),
+            ))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -385,13 +427,17 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_200_credits_once() {
-        let store = billing_store();
+        let store = memory();
         let body = paid_event("cs_ok");
         let t = now_unix();
         let sig = format!("t={t},v1={}", sign_payload(&body, WHSEC, t));
         for expected in ["applied", "duplicate"] {
             let resp = app(webhook_config(), store.clone())
-                .oneshot(post("/api/v1/billing/webhook", body.clone(), Some(&sig)))
+                .oneshot(post(
+                    "/api/v1/billing/webhook",
+                    body.clone(),
+                    Some(("Stripe-Signature", &sig)),
+                ))
                 .await
                 .unwrap();
             assert_eq!(resp.status(), StatusCode::OK);

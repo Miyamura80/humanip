@@ -128,14 +128,17 @@ JSON, so do not put a body-rewriting proxy in front of it.
 
 ## Store integration point
 
-`billing_store()` in `crates/cli/src/billing_routes.rs` returns the store
-webhook credits land in. It is currently an in-memory `MemoryAccounts`, so
-credits are lost on restart. Replace it with the SQLite ledger
-(`humanip-ledger`) shared with the gateway before taking real payments.
+`appctl serve` opens the SQLite ledger (`humanip-ledger`) at
+`HUMANIP_ACCOUNTS_DB` once at startup and shares it: the control API
+(`/api/v1/control`) uses it directly, and `billing_store()` in
+`crates/cli/src/billing_routes.rs` hands the same `Arc` to billing as
+`dyn AccountStore`. Without `HUMANIP_ACCOUNTS_DB`, billing falls back to an
+in-memory `MemoryAccounts` (credits are lost on restart) and logs a warning.
 
-The checkout route does not authenticate the caller or check that
-`account_id` exists. Paying into an arbitrary account cannot take money out,
-but put the route behind account auth once it exists.
+The checkout route requires `Authorization: Bearer <HUMANIP_CONTROL_TOKEN>`
+(401 without it, 503 when the token is unset) and returns 404 when
+`account_id` does not exist. The webhook is authenticated only by its Stripe
+signature. See `docs/product-api.md` section 1.
 
 ## Testing
 

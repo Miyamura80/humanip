@@ -30,6 +30,8 @@ use tower_http::{
 
 #[path = "billing_routes.rs"]
 pub mod billing_routes;
+#[path = "control_routes.rs"]
+pub mod control_routes;
 
 /// Shared application state: capabilities + registry, both cheap to clone.
 #[derive(Clone)]
@@ -92,6 +94,7 @@ fn cors_layer(origins: &[String]) -> CorsLayer {
 }
 
 /// Build the router. Pure function of state + settings → easy to unit-test.
+/// The product routes read env (and open the ledger) once, here.
 pub fn build_app(state: AppState, settings: &ServeSettings) -> Router {
     let api = Router::new()
         .route("/commands", get(list_commands))
@@ -99,10 +102,7 @@ pub fn build_app(state: AppState, settings: &ServeSettings) -> Router {
         .route("/probe/:target", post(run_probe))
         .route("/doctor", get(doctor))
         .route("/config", get(get_config))
-        .nest(
-            "/billing",
-            billing_routes::router(billing_routes::BillingState::from_env()),
-        );
+        .merge(control_routes::product_routes());
 
     Router::new()
         .route("/healthz", get(healthz))
