@@ -21,6 +21,7 @@ pub mod server;
 pub mod session;
 pub mod socks5;
 pub mod upstream;
+pub mod verify;
 
 use std::fmt;
 use std::net::SocketAddr;
