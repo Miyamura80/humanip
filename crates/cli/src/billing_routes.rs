@@ -122,6 +122,19 @@ fn not_configured() -> Response {
 struct CheckoutReq {
     account_id: String,
     amount_usd: f64,
+    /// Honoured only on `HUMANIP_PUBLIC_URL`'s origin; see [`return_url`].
+    #[serde(default)]
+    success_url: Option<String>,
+    #[serde(default)]
+    cancel_url: Option<String>,
+}
+
+/// `candidate` if it is under `public`'s origin, else `default` (no open redirects).
+fn return_url(public: &str, candidate: Option<&str>, default: String) -> String {
+    match candidate {
+        Some(c) if c == public || c.starts_with(&format!("{public}/")) => c.to_string(),
+        _ => default,
+    }
 }
 
 async fn checkout(State(st): State<BillingState>, headers: HeaderMap, body: Bytes) -> Response {
@@ -187,8 +200,16 @@ async fn checkout(State(st): State<BillingState>, headers: HeaderMap, body: Byte
         }
     };
     let public = public.trim_end_matches('/');
-    let success = format!("{public}/billing/success?session_id={{CHECKOUT_SESSION_ID}}");
-    let cancel = format!("{public}/billing/cancel");
+    let success = return_url(
+        public,
+        req.success_url.as_deref(),
+        format!("{public}/billing/success?session_id={{CHECKOUT_SESSION_ID}}"),
+    );
+    let cancel = return_url(
+        public,
+        req.cancel_url.as_deref(),
+        format!("{public}/billing/cancel"),
+    );
     match client
         .create_checkout(&req.account_id, req.amount_usd, &success, &cancel)
         .await
@@ -444,5 +465,32 @@ mod tests {
             assert_eq!(json_body(resp).await["result"]["outcome"], expected);
         }
         assert_eq!(store.balance("acct_7").unwrap(), 20_000_000);
+    }
+}
+
+#[cfg(test)]
+mod return_url_tests {
+    use super::return_url;
+
+    #[test]
+    fn only_same_origin_return_urls_are_honoured() {
+        let p = "http://localhost:1420";
+        let d = || "DEFAULT".to_string();
+        assert_eq!(
+            return_url(
+                p,
+                Some("http://localhost:1420/#/account?topup=success"),
+                d()
+            ),
+            "http://localhost:1420/#/account?topup=success"
+        );
+        for bad in [
+            "https://evil.example/phish",
+            "http://localhost:14200/x",
+            "http://localhost:1420.evil.example/",
+        ] {
+            assert_eq!(return_url(p, Some(bad), d()), "DEFAULT", "{bad}");
+        }
+        assert_eq!(return_url(p, None, d()), "DEFAULT");
     }
 }
