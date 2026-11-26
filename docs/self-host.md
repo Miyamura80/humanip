@@ -223,3 +223,11 @@ The ledger holds money (balances and credited sessions); back it up at least
 daily and before upgrades. Restoring `auth.db` without the matching ledger
 leaves users linked to account ids the ledger does not know, so restore the two
 from the same point in time.
+
+## End-to-end test
+
+With the local stack running (`scripts/dev-stack.sh start`), `make e2e` drives a
+real browser through the product: sign up, create a key, top up $25 on the fake
+Stripe page (signed webhook credits the ledger), send traffic through the
+gateway with the new key, and check the usage is billed. Screenshots land in
+`.stack/e2e/`.

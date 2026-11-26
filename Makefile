@@ -247,3 +247,6 @@ bump-version: ## Bump version across all manifests (usage: make bump-version VER
 	@echo "  git commit -m '⚙️ bump version to $(VERSION)'"
 	@echo "  git tag v$(VERSION)"
 	@echo "  git push origin main --tags"
+
+e2e: ## Product end-to-end test: sign up, key, fake-Stripe top-up, proxied traffic, billing (needs scripts/dev-stack.sh start)
+	node scripts/e2e-product.cjs
